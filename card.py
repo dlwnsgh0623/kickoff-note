@@ -1,4 +1,5 @@
 """카드 이미지 만들기: 사진 4:5 크롭 → 하단 페이드 → 흰 글씨 2줄 → 워드마크"""
+import glob
 import io
 import os
 
@@ -13,15 +14,31 @@ SIDE = 60  # 좌우 여백
 FONT_CANDIDATES = [
     "fonts/Pretendard-Black.otf",  # fonts 폴더에 넣으면 이걸 우선 사용
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
     "C:/Windows/Fonts/malgunbd.ttf",
 ]
+_FONT_PATH = None
+
+
+def _find_font():
+    for p in FONT_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    # 위치가 다른 서버를 대비해 직접 찾아보기
+    for pattern in ("/usr/share/fonts/**/NotoSansCJK*Black*", "/usr/share/fonts/**/NotoSansCJK*Bold*",
+                    "/usr/share/fonts/**/*CJK*Bold*"):
+        found = sorted(glob.glob(pattern, recursive=True))
+        if found:
+            return found[0]
+    raise FileNotFoundError("한글 글꼴을 찾지 못했어요")
 
 
 def _font(size):
-    for p in FONT_CANDIDATES:
-        if os.path.exists(p):
-            return ImageFont.truetype(p, size, index=1 if p.endswith(".ttc") else 0)
-    raise FileNotFoundError("한글 글꼴을 찾지 못했어요")
+    global _FONT_PATH
+    _FONT_PATH = _FONT_PATH or _find_font()
+    p = _FONT_PATH
+    # .ttc 묶음 파일에서 1번이 한국어(KR) 글꼴
+    return ImageFont.truetype(p, size, index=1 if p.endswith(".ttc") else 0)
 
 
 def _load_photo(url):

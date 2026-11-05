@@ -106,6 +106,8 @@ def collect_rss():
                     print(f"[RSS 실패] {feed}: {e}")
                 break
             items = root.findall(".//item")
+            if page == 1:
+                print(f"[RSS] {feed}: 피드 글 {len(items)}개")
             old = False
             for it in items:
                 try:
