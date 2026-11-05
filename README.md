@@ -28,7 +28,7 @@
 
 | 이름 | 어디서 받나 |
 |---|---|
-| `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys |
+| `CLAUDE_CODE_OAUTH_TOKEN` | 내 컴퓨터 터미널에서 `claude setup-token` 실행 → 나온 토큰 (Claude 구독 사용) |
 | `KAKAO_REST_KEY` | 카카오 디벨로퍼스 → 내 앱 → 앱 키 → REST API 키 (뉴스 검색 + 카톡 전송에 같이 씀) |
 | `KAKAO_REFRESH_TOKEN` | 카카오 로그인(talk_message 동의)으로 발급 |
 
@@ -37,6 +37,8 @@
 2. 카카오 디벨로퍼스 → 내 앱 → 플랫폼 → Web 사이트 도메인에
    `https://raw.githubusercontent.com` 을 등록해야 카톡 버튼이 열려요.
 3. Settings → Actions → General → Workflow permissions 를 **Read and write** 로.
+
+> API 키로 돌리고 싶으면 `ANTHROPIC_API_KEY`를 추가하고 make.yml의 env에도 넣으면 자동으로 API를 써요.
 
 ## 테스트하기
 Actions 탭 → `오늘의 게시물 만들기` → **Run workflow** 를 누르면 지금 바로 만들어서 카톡이 와요.

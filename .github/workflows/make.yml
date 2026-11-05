@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 40
     env:
       TZ: Asia/Seoul
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
       KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
     steps:
@@ -29,6 +29,11 @@ jobs:
       - name: 한글 글꼴 설치
         run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk
       - run: pip install -r requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Claude Code 설치
+        run: npm install -g @anthropic-ai/claude-code
       - name: 뉴스 수집 · 이미지 제작
         run: python make_posts.py
       - name: 결과 저장 (이미지를 공개 주소로 올림)

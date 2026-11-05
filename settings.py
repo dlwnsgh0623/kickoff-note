@@ -45,4 +45,5 @@ RSS_BONUS = 3
 NEWS_WITHIN_HOURS = 24
 
 # 글 쓰는 AI 모델
-CLAUDE_MODEL = "claude-sonnet-5-5"
+CLAUDE_CODE_MODEL = "sonnet"            # Claude Code(구독)로 돌릴 때
+CLAUDE_MODEL = "claude-sonnet-5-5"      # API 키로 돌릴 때

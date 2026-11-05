@@ -3,6 +3,7 @@ import html
 import json
 import os
 import re
+import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -128,7 +129,20 @@ def collect_rss():
 
 
 # ---------------- 2. Claude 호출 ----------------
-def ask_claude(prompt, max_tokens=4000):
+def _claude_code(prompt):
+    """Claude Code(구독 토큰)로 답 받기"""
+    r = subprocess.run(
+        ["claude", "-p", "표준입력으로 받은 지시를 그대로 따르고, 도구는 쓰지 말고, 요청한 JSON으로만 답해.",
+         "--model", settings.CLAUDE_CODE_MODEL, "--output-format", "text"],
+        input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=600,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"Claude Code 실행 실패: {r.stderr[:500]}")
+    return r.stdout
+
+
+def _claude_api(prompt, max_tokens):
+    """Claude API 키로 답 받기"""
     r = requests.post(
         "https://api.anthropic.com/v1/messages",
         headers={
@@ -144,8 +158,18 @@ def ask_claude(prompt, max_tokens=4000):
         timeout=180,
     )
     r.raise_for_status()
-    text = "".join(b.get("text", "") for b in r.json()["content"])
+    return "".join(b.get("text", "") for b in r.json()["content"])
+
+
+def ask_claude(prompt, max_tokens=4000):
+    # API 키가 있으면 API, 없으면 Claude Code(구독)로
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        text = _claude_api(prompt, max_tokens)
+    else:
+        text = _claude_code(prompt)
     m = re.search(r"\{.*\}", text, re.S)
+    if not m:
+        raise ValueError(f"Claude 답변에서 JSON을 못 찾았어요: {text[:300]}")
     return json.loads(m.group(0))
 
 
