@@ -15,7 +15,7 @@ concurrency:
 jobs:
   make:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     env:
       TZ: Asia/Seoul
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -28,7 +28,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: 한글 글꼴 설치
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk fonts-noto-cjk-extra
+        timeout-minutes: 5
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk
       - run: pip install -r requirements.txt
       - uses: actions/setup-node@v4
         with:
