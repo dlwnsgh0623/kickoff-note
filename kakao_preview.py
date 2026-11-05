@@ -10,15 +10,14 @@ from common import load_posts, public_url, today
 
 
 def access_token():
-    r = requests.post(
-        "https://kauth.kakao.com/oauth/token",
-        data={
-            "grant_type": "refresh_token",
-            "client_id": os.environ["KAKAO_REST_KEY"],
-            "refresh_token": os.environ["KAKAO_REFRESH_TOKEN"],
-        },
-        timeout=15,
-    )
+    data = {
+        "grant_type": "refresh_token",
+        "client_id": os.environ["KAKAO_REST_KEY"],
+        "refresh_token": os.environ["KAKAO_REFRESH_TOKEN"],
+    }
+    if os.environ.get("KAKAO_CLIENT_SECRET"):  # 클라이언트 시크릿을 켠 경우
+        data["client_secret"] = os.environ["KAKAO_CLIENT_SECRET"]
+    r = requests.post("https://kauth.kakao.com/oauth/token", data=data, timeout=15)
     r.raise_for_status()
     data = r.json()
     if "refresh_token" in data:
