@@ -2,6 +2,7 @@
 import glob
 import io
 import os
+import re
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
@@ -54,6 +55,38 @@ def _load_photo(url):
     except Exception as e:
         print(f"[사진 실패] {e}")
         return None
+
+
+def _variants(url):
+    """썸네일 주소면 원본 크기 주소부터 시도"""
+    out = []
+    v = re.sub(r"_v\d+(\.\w+)$", r"\1", url)                 # ..._v150.jpg → ....jpg
+    v = v.replace("/news/thumbnail/", "/news/photo/")
+    v = re.sub(r"-\d+x\d+(\.\w+)$", r"\1", v)               # 워드프레스 ...-300x200.jpg
+    if v != url:
+        out.append(v)
+    out.append(url)
+    return out
+
+
+def _is_real_photo(img):
+    """글자만 있는 카드뉴스/로고 이미지 거르기: 흰 배경이 넓거나 너무 단조로우면 탈락"""
+    g = img.convert("L").resize((64, 64))
+    px = list(g.getdata())
+    white = sum(1 for v in px if v > 235) / len(px)
+    mean = sum(px) / len(px)
+    std = (sum((v - mean) ** 2 for v in px) / len(px)) ** 0.5
+    return white < 0.3 and std > 25
+
+
+def choose_photo(urls):
+    """후보 사진들 중 쓸 만한 첫 번째 주소를 돌려줌"""
+    for url in urls:
+        for u in _variants(url):
+            img = _load_photo(u)
+            if img and img.width >= 600 and _is_real_photo(img):
+                return u
+    return None
 
 
 def _cover(img):

@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import requests
 
+import card
 import settings
 
 KST = timezone(timedelta(hours=9))
@@ -90,6 +91,22 @@ def collect_articles():
     return articles
 
 
+def it_date(it):
+    return (it.findtext("pubDate") or it.findtext("{http://purl.org/dc/elements/1.1/}date") or "").strip()
+
+
+def _parse_date(text):
+    if not text:
+        return None
+    for f in (parsedate_to_datetime, datetime.fromisoformat):
+        try:
+            d = f(text)
+            return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+    return None
+
+
 def collect_rss():
     """Score90 등 RSS 피드에서 최근 기사를 모읍니다. 실패해도 전체가 멈추지 않아요."""
     since = datetime.now(KST) - timedelta(hours=settings.NEWS_WITHIN_HOURS)
@@ -109,10 +126,11 @@ def collect_rss():
             if page == 1:
                 print(f"[RSS] {feed}: 피드 글 {len(items)}개")
             old = False
+            if page == 1 and items:
+                print(f"[RSS] 첫 글 날짜: {it_date(items[0])!r}")
             for it in items:
-                try:
-                    pub = parsedate_to_datetime(it.findtext("pubDate"))
-                except Exception:
+                pub = _parse_date(it_date(it))
+                if not pub:
                     continue
                 if pub < since:
                     old = True
@@ -238,13 +256,15 @@ def fetch_article(url):
 
 # ---------------- 5. 멘트 + 설명글 작성 ----------------
 def write_post(story):
-    details, image, sources = [], None, []
-    for a in story["articles"][:4]:
+    details, candidates, sources = [], [], []
+    for n, a in enumerate(story["articles"][:7]):
         info = fetch_article(a["link"])
-        if not image and info.get("image"):
-            image = info["image"]
-        sources.append(info.get("site") or a["domain"])
-        details.append(f"[제목] {a['title']}\n[요약] {a['desc']}\n[본문] {info.get('text', '')}")
+        if info.get("image"):
+            candidates.append(info["image"])
+        if n < 4:  # 글은 앞 4개 기사로, 사진 후보는 최대 7개 기사에서
+            sources.append(info.get("site") or a["domain"])
+            details.append(f"[제목] {a['title']}\n[요약] {a['desc']}\n[본문] {info.get('text', '')}")
+    image = card.choose_photo(list(dict.fromkeys(candidates)))
 
     prompt = f"""너는 해외축구 인스타 계정 '킥오프노트' 운영자야. 아래 기사들만 근거로 게시물을 써.
 
