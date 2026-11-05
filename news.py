@@ -1,9 +1,11 @@
 """뉴스 수집 → 화제순 선정 → 멘트/설명글 작성"""
+import base64
 import html
 import json
 import os
 import re
 import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -255,6 +257,79 @@ def fetch_article(url):
 
 
 # ---------------- 5. 멘트 + 설명글 작성 ----------------
+# ---------------- 사진 담당: 후보 사진을 Claude가 직접 보고 고르기 ----------------
+PHOTO_PROMPT = """너는 해외축구 인스타 계정의 사진 담당이야.
+게시물 주제: {topic}
+이미지 문구: {hook}
+주인공(선수/팀) 단서: {tags}
+
+후보 사진 파일: {files}
+각 사진을 직접 열어보고 이 게시물에 가장 맞는 사진 하나를 골라.
+
+조건
+- 주제의 주인공 선수/팀이 나온 사진이어야 함 (다른 팀 유니폼이면 탈락)
+- 다른 언론사의 제목·자막·로고·카드뉴스 글자가 크게 박힌 사진은 탈락 (작은 워터마크는 괜찮음)
+- 인물이 크게, 선명하게 나온 사진 우선
+- 맞는 사진이 없으면 0
+
+JSON으로만 답해: {{"choice": 번호, "reason": "짧은 이유"}}"""
+
+
+def pick_photo(story, post, urls):
+    cands = card.photo_candidates(urls)
+    if not cands:
+        return None
+    if len(cands) == 1 and not settings.PHOTO_CHECK_SINGLE:
+        return cands[0][0]
+    work = tempfile.mkdtemp(prefix="photos_")
+    files = []
+    for i, (_, img) in enumerate(cands, 1):
+        small = img.copy()
+        small.thumbnail((768, 768))
+        name = f"c{i}.jpg"
+        small.save(os.path.join(work, name), "JPEG", quality=85)
+        files.append(name)
+    prompt = PHOTO_PROMPT.format(topic=story["topic"], hook=" / ".join(post["hook"]),
+                                 tags=", ".join(post["hashtags"]), files=", ".join(files))
+    try:
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            ans = _photo_api(prompt, work, files)
+        else:
+            r = subprocess.run(
+                ["claude", "-p", "표준입력의 지시를 따라. Read 도구로 사진 파일들을 열어보고 JSON으로만 답해.",
+                 "--model", settings.CLAUDE_CODE_MODEL, "--allowedTools", "Read", "--output-format", "text"],
+                input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=600, cwd=work,
+            )
+            ans = json.loads(re.search(r"\{.*\}", r.stdout, re.S).group(0))
+        n = int(ans.get("choice", 0))
+        print(f"[사진 선택] 후보 {len(cands)}장 중 {n}번 — {ans.get('reason', '')}")
+        return cands[n - 1][0] if 1 <= n <= len(cands) else None
+    except Exception as e:
+        print(f"[사진 선택 실패] {e} → 첫 번째 후보 사용")
+        return cands[0][0]
+
+
+def _photo_api(prompt, work, files):
+    content = []
+    for f in files:
+        with open(os.path.join(work, f), "rb") as fh:
+            content.append({"type": "text", "text": f})
+            content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                          "data": base64.b64encode(fh.read()).decode()}})
+    content.append({"type": "text", "text": prompt})
+    r = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01",
+                 "content-type": "application/json"},
+        json={"model": settings.CLAUDE_MODEL, "max_tokens": 300,
+              "messages": [{"role": "user", "content": content}]},
+        timeout=180,
+    )
+    r.raise_for_status()
+    text = "".join(b.get("text", "") for b in r.json()["content"])
+    return json.loads(re.search(r"\{.*\}", text, re.S).group(0))
+
+
 def write_post(story):
     details, candidates, sources = [], [], []
     for n, a in enumerate(story["articles"][:7]):
@@ -264,8 +339,6 @@ def write_post(story):
         if n < 4:  # 글은 앞 4개 기사로, 사진 후보는 최대 7개 기사에서
             sources.append(info.get("site") or a["domain"])
             details.append(f"[제목] {a['title']}\n[요약] {a['desc']}\n[본문] {info.get('text', '')}")
-    image = card.choose_photo(list(dict.fromkeys(candidates)))
-
     prompt = f"""너는 해외축구 인스타 계정 '킥오프노트' 운영자야. 아래 기사들만 근거로 게시물을 써.
 
 규칙
@@ -283,6 +356,7 @@ JSON으로만 답해:
 기사들:
 """ + "\n\n".join(details)
     post = ask_claude(prompt, max_tokens=1500)
+    image = pick_photo(story, post, list(dict.fromkeys(candidates)))
 
     tags = settings.BASE_HASHTAGS + settings.LEAGUE_HASHTAGS.get(story["league"], []) + post["hashtags"]
     tags = list(dict.fromkeys(t.replace("#", "").replace(" ", "") for t in tags))

@@ -79,14 +79,18 @@ def _is_real_photo(img):
     return white < 0.3 and std > 25
 
 
-def choose_photo(urls):
-    """후보 사진들 중 쓸 만한 첫 번째 주소를 돌려줌"""
+def photo_candidates(urls, max_n=6):
+    """기본 검사(크기·카드뉴스 여부)를 통과한 사진 후보들: [(주소, 이미지), ...]"""
+    out = []
     for url in urls:
         for u in _variants(url):
             img = _load_photo(u)
             if img and img.width >= 600 and _is_real_photo(img):
-                return u
-    return None
+                out.append((u, img))
+                break
+        if len(out) >= max_n:
+            break
+    return out
 
 
 def _cover(img):

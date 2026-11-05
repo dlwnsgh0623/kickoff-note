@@ -36,7 +36,7 @@ SEARCH_QUERIES = [
 ]
 
 # 추가로 가져올 해외 사이트 RSS
-RSS_FEEDS = ["https://score90.com/feed/"]
+RSS_FEEDS = []  # 예: ["https://사이트주소/feed/"]
 
 # RSS 사이트가 다룬 이슈에 주는 화제 가산점 (언론사 몇 곳만큼 쳐줄지)
 RSS_BONUS = 3
@@ -47,3 +47,6 @@ NEWS_WITHIN_HOURS = 24
 # 글 쓰는 AI 모델
 CLAUDE_CODE_MODEL = "sonnet"            # Claude Code(구독)로 돌릴 때
 CLAUDE_MODEL = "claude-sonnet-5-5"      # API 키로 돌릴 때
+
+# 사진 후보가 1장뿐일 때도 Claude가 맞는 사진인지 확인할지 (True 권장)
+PHOTO_CHECK_SINGLE = True
