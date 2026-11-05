@@ -4,7 +4,6 @@ import json
 import os
 import re
 from datetime import datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 import requests
@@ -21,50 +20,61 @@ def _clean(text):
     return html.unescape(text).strip()
 
 
+# 뉴스가 아닌 사이트(블로그·커뮤니티 등)는 제외
+NON_NEWS = ("tistory", "blog", "cafe", "namu.wiki", "wikipedia", "youtube", "instagram",
+            "facebook", "x.com", "twitter", "fmkorea", "dcinside", "ruliweb", "clien",
+            "theqoo", "inven", "brunch", "velog", "github", "reddit")
+
+
 def collect_articles():
-    """네이버 뉴스 검색 API로 최근 기사를 모읍니다."""
-    headers = {
-        "X-Naver-Client-Id": os.environ["NAVER_CLIENT_ID"],
-        "X-Naver-Client-Secret": os.environ["NAVER_CLIENT_SECRET"],
-    }
+    """카카오(다음) 웹문서 검색 API로 최근 기사를 모읍니다."""
+    headers = {"Authorization": f"KakaoAK {os.environ['KAKAO_REST_KEY']}"}
     since = datetime.now(KST) - timedelta(hours=settings.NEWS_WITHIN_HOURS)
     seen_links, seen_titles, articles = set(), set(), []
 
     for q in settings.SEARCH_QUERIES:
-        try:
-            r = requests.get(
-                "https://openapi.naver.com/v1/search/news.json",
-                headers=headers,
-                params={"query": q, "display": 100, "sort": "date"},
-                timeout=15,
-            )
-            r.raise_for_status()
-        except Exception as e:
-            print(f"[수집 실패] {q}: {e}")
-            continue
-
-        for it in r.json().get("items", []):
+        for page in (1, 2):
             try:
-                pub = parsedate_to_datetime(it["pubDate"])
-            except Exception:
-                continue
-            if pub < since:
-                continue
-            link = it.get("originallink") or it.get("link")
-            title = _clean(it["title"])
-            key = re.sub(r"\W", "", title)[:30]
-            if link in seen_links or key in seen_titles:
-                continue
-            seen_links.add(link)
-            seen_titles.add(key)
-            articles.append({
-                "id": len(articles),
-                "title": title,
-                "desc": _clean(it.get("description")),
-                "link": link,
-                "naver_link": it.get("link"),
-                "domain": urlparse(link).netloc.replace("www.", ""),
-            })
+                r = requests.get(
+                    "https://dapi.kakao.com/v2/search/web",
+                    headers=headers,
+                    params={"query": q, "sort": "recency", "size": 50, "page": page},
+                    timeout=15,
+                )
+                r.raise_for_status()
+            except Exception as e:
+                print(f"[수집 실패] {q}: {e}")
+                break
+
+            docs = r.json().get("documents", [])
+            too_old = False
+            for it in docs:
+                try:
+                    pub = datetime.fromisoformat(it["datetime"])
+                except Exception:
+                    continue
+                if pub < since:
+                    too_old = True
+                    continue
+                link = it["url"]
+                domain = urlparse(link).netloc.replace("www.", "")
+                if any(w in domain for w in NON_NEWS):
+                    continue
+                title = _clean(it["title"])
+                key = re.sub(r"\W", "", title)[:30]
+                if link in seen_links or key in seen_titles:
+                    continue
+                seen_links.add(link)
+                seen_titles.add(key)
+                articles.append({
+                    "id": len(articles),
+                    "title": title,
+                    "desc": _clean(it.get("contents")),
+                    "link": link,
+                    "domain": domain,
+                })
+            if too_old or len(docs) < 50:
+                break
     print(f"[수집] 기사 {len(articles)}개")
     return articles[:700]
 

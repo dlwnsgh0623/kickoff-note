@@ -26,9 +26,8 @@
 
 | 이름 | 어디서 받나 |
 |---|---|
-| `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | 네이버 개발자센터 → 애플리케이션 등록 (검색 API) |
 | `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys |
-| `KAKAO_REST_KEY` | 카카오 디벨로퍼스 → 내 앱 → 앱 키 → REST API 키 |
+| `KAKAO_REST_KEY` | 카카오 디벨로퍼스 → 내 앱 → 앱 키 → REST API 키 (뉴스 검색 + 카톡 전송에 같이 씀) |
 | `KAKAO_REFRESH_TOKEN` | 카카오 로그인(talk_message 동의)으로 발급 |
 
 ### 꼭 확인할 것
