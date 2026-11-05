@@ -35,6 +35,12 @@ SEARCH_QUERIES = [
     "알나스르", "알힐랄",
 ]
 
+# 추가로 가져올 해외 사이트 RSS
+RSS_FEEDS = ["https://score90.com/feed/"]
+
+# RSS 사이트가 다룬 이슈에 주는 화제 가산점 (언론사 몇 곳만큼 쳐줄지)
+RSS_BONUS = 3
+
 # 몇 시간 이내 기사만 볼지
 NEWS_WITHIN_HOURS = 24
 

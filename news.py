@@ -3,7 +3,9 @@ import html
 import json
 import os
 import re
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 import requests
@@ -75,8 +77,54 @@ def collect_articles():
                 })
             if too_old or len(docs) < 50:
                 break
-    print(f"[수집] 기사 {len(articles)}개")
-    return articles[:700]
+    print(f"[수집] 카카오 검색 기사 {len(articles)}개")
+    articles = articles[:650]
+
+    rss = collect_rss()
+    for a in rss:
+        if a["link"] not in seen_links:
+            a["id"] = len(articles)
+            articles.append(a)
+    print(f"[수집] 전체 {len(articles)}개 (RSS {len(rss)}개 포함)")
+    return articles
+
+
+def collect_rss():
+    """Score90 등 RSS 피드에서 최근 기사를 모읍니다. 실패해도 전체가 멈추지 않아요."""
+    since = datetime.now(KST) - timedelta(hours=settings.NEWS_WITHIN_HOURS)
+    out = []
+    for feed in settings.RSS_FEEDS:
+        for page in (1, 2, 3):
+            url = feed if page == 1 else f"{feed}?paged={page}"
+            try:
+                r = requests.get(url, headers=UA, timeout=20)
+                r.raise_for_status()
+                root = ET.fromstring(r.content)
+            except Exception as e:
+                if page == 1:
+                    print(f"[RSS 실패] {feed}: {e}")
+                break
+            items = root.findall(".//item")
+            old = False
+            for it in items:
+                try:
+                    pub = parsedate_to_datetime(it.findtext("pubDate"))
+                except Exception:
+                    continue
+                if pub < since:
+                    old = True
+                    continue
+                link = (it.findtext("link") or "").strip()
+                out.append({
+                    "title": _clean(it.findtext("title")),
+                    "desc": _clean(it.findtext("description"))[:300],
+                    "link": link,
+                    "domain": urlparse(link).netloc.replace("www.", ""),
+                    "priority": True,
+                })
+            if old or not items:
+                break
+    return out
 
 
 # ---------------- 2. Claude 호출 ----------------
@@ -105,9 +153,9 @@ def ask_claude(prompt, max_tokens=4000):
 def pick_stories(articles, recent_titles):
     lines = "\n".join(f"{a['id']}|{a['domain']}|{a['title']}" for a in articles)
     recent = "\n".join(f"- {t}" for t in recent_titles) or "(없음)"
-    prompt = f"""너는 해외축구 뉴스 에디터야. 아래는 최근 24시간 한국 기사 목록이야 (형식: 번호|언론사|제목).
+    prompt = f"""너는 해외축구 뉴스 에디터야. 아래는 최근 24시간 기사 목록이야 (형식: 번호|언론사|제목). 한국 기사와 영어 기사(score90.com 등)가 섞여 있어.
 
-1) 같은 사건/이슈를 다룬 기사끼리 묶어.
+1) 같은 사건/이슈를 다룬 기사끼리 묶어. 한국 기사와 영어 기사도 같은 이슈면 한 묶음으로.
 2) 대상: 프리미어리그, 라리가, 분데스리가, 세리에A, 리그1, 사우디 프로리그 소속 팀·선수 이야기
    (이 리그 팀이 뛰는 챔피언스리그/유로파리그 경기도 포함). 그 외 리그, K리그, 국가대표, 광고성 기사는 제외.
 3) 서로 다른 언론사가 많이 다룬 이슈일수록 화제. 화제 순으로 {settings.POST_COUNT + 3}개를 골라.
@@ -124,8 +172,12 @@ JSON으로만 답해:
     for s in stories:
         s["articles"] = [by_id[i] for i in s["article_ids"] if i in by_id]
         s["outlets"] = len({a["domain"] for a in s["articles"]})
+        # 화제 점수 = 보도한 언론사 수 + (지정 RSS 사이트가 다뤘으면 가산점)
+        s["score"] = s["outlets"] + (settings.RSS_BONUS if any(a.get("priority") for a in s["articles"]) else 0)
+        # 사진·본문은 지정 RSS 사이트 기사를 먼저 쓰도록 앞으로
+        s["articles"].sort(key=lambda a: not a.get("priority"))
     stories = [s for s in stories if s["articles"]]
-    stories.sort(key=lambda s: s["outlets"], reverse=True)
+    stories.sort(key=lambda s: s["score"], reverse=True)
     return stories
 
 
@@ -172,6 +224,7 @@ def write_post(story):
 
 규칙
 - 기사에 없는 사실, 숫자, 인용은 절대 만들지 마. 애매하면 빼.
+- 영어 기사는 한국어로 옮겨서 써. 선수·팀 이름은 한국에서 흔히 쓰는 표기로.
 - hook: 이미지 위에 들어갈 2줄. 해외축구 커뮤니티 말투(반말, ㅋㅋ/ㄷㄷ 가능)로 시선을 끌되 내용이 과장·왜곡되면 안 됨.
   1줄째는 주인공(선수/팀), 2줄째는 사건. 각 줄 한글 14자 이내.
 - caption_title: 설명란 첫 줄, 이모지 1개 포함, 30자 이내.
