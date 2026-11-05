@@ -1,0 +1,47 @@
+name: 오늘의 게시물 만들기 (매일 18시)
+
+on:
+  schedule:
+    - cron: "0 9 * * *"   # UTC 09:00 = 한국 18:00
+  workflow_dispatch:       # 수동 실행 버튼
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kickoff
+  cancel-in-progress: false
+
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TZ: Asia/Seoul
+      NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+      NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
+      KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 한글 글꼴 설치
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk
+      - run: pip install -r requirements.txt
+      - name: 뉴스 수집 · 이미지 제작
+        run: python make_posts.py
+      - name: 결과 저장 (이미지를 공개 주소로 올림)
+        run: |
+          git config user.name "kickoff-bot"
+          git config user.email "kickoff-bot@users.noreply.github.com"
+          git add output
+          git commit -m "게시물 준비 $(date +%F)" || echo "변경 없음"
+          git pull --rebase
+          git push
+      - name: 이미지가 공개될 때까지 잠시 대기
+        run: sleep 30
+      - name: 카카오톡 미리보기 전송
+        run: python kakao_preview.py
