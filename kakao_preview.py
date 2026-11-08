@@ -6,7 +6,7 @@ import os
 
 import requests
 
-from common import load_posts, public_url, today
+from common import load_posts, pages_url, public_url, today
 
 
 def access_token():
@@ -47,10 +47,12 @@ def main():
         return
     token = access_token()
 
+    page = pages_url(f"{today()}/")
     send(token, {
         "object_type": "text",
-        "text": f"⚽ 킥오프노트 {today()} 게시물 {len(posts)}개 도착!\n\n각 메시지의 [이미지 저장]으로 사진을 받고, [본문 복사]로 설명글을 복사해서 올리면 돼요.",
-        "link": _link(public_url(f"output/{today()}/posts.json")),
+        "text": f"⚽ 킥오프노트 {today()} 게시물 {len(posts)}개 도착!\n\n아래 버튼을 누르면 5개가 한 화면에 나와요. 거기서 [이미지 저장] [본문 복사]를 쓰면 돼요.\n(카톡 안에서 저장이 안 되면 메뉴 → 다른 브라우저로 열기)",
+        "link": _link(page),
+        "button_title": "오늘 게시물 열기",
     })
 
     for i, p in enumerate(posts, 1):
@@ -65,8 +67,8 @@ def main():
                 "link": _link(img),
             },
             "buttons": [
-                {"title": "이미지 저장", "link": _link(img)},
-                {"title": "본문 복사", "link": _link(txt)},
+                {"title": "저장·복사 페이지", "link": _link(page + f"#post{i}")},
+                {"title": "본문만 보기", "link": _link(txt)},
             ],
         })
     print("[카톡] 전송 완료")

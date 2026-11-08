@@ -25,7 +25,7 @@ def main():
 
     articles = news.collect_articles()
     if not articles:
-        sys.exit("기사를 하나도 못 모았어요. 네이버 API 키를 확인해주세요.")
+        sys.exit("기사를 하나도 못 모았어요. 카카오 REST 키를 확인해주세요.")
 
     stories = news.pick_stories(articles, recent_topics())
     print(f"[선정] 후보 {len(stories)}개")
@@ -34,12 +34,16 @@ def main():
     for s in stories:
         if len(with_photo) >= settings.POST_COUNT:
             break
+        style = settings.HOOK_STYLES[len(with_photo) % len(settings.HOOK_STYLES)]
+        used = [p["hook"] for p in with_photo + without_photo]
         try:
-            post = news.write_post(s)
+            post = news.write_post(s, style=style, used_hooks=used)
         except Exception as e:
             print(f"[작성 실패] {s['topic']}: {e}")
             continue
         (with_photo if post["image_source"] else without_photo).append(post)
+        if not post["image_source"]:
+            print(f"[사진 없음] {s['topic']}")
 
     # 사진 있는 게시물 우선, 모자라면 기본 배경 게시물로 채움
     posts = (with_photo + without_photo)[: settings.POST_COUNT]

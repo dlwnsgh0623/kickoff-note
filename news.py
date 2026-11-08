@@ -204,7 +204,7 @@ def pick_stories(articles, recent_titles):
 1) 같은 사건/이슈를 다룬 기사끼리 묶어. 한국 기사와 영어 기사도 같은 이슈면 한 묶음으로.
 2) 대상: 프리미어리그, 라리가, 분데스리가, 세리에A, 리그1, 사우디 프로리그 소속 팀·선수 이야기
    (이 리그 팀이 뛰는 챔피언스리그/유로파리그 경기도 포함). 그 외 리그, K리그, 국가대표, 광고성 기사는 제외.
-3) 서로 다른 언론사가 많이 다룬 이슈일수록 화제. 화제 순으로 {settings.POST_COUNT + 3}개를 골라.
+3) 서로 다른 언론사가 많이 다룬 이슈일수록 화제. 화제 순으로 {settings.POST_COUNT + 7}개를 골라.
 4) 최근 이미 올린 이슈와 같은 내용은 제외:
 {recent}
 
@@ -249,8 +249,11 @@ def fetch_article(url):
     text = " ".join(p for p in paras if len(p) > 30)[:2500]
     if len(text) < 200:  # <p>가 없는 사이트 대비
         text = _clean(body)[:2500]
+    image = _meta(page, "og:image")
+    if image and image.count("http") > 1:  # 'https://cdn.../statichttps://img...' 같은 깨진 주소 보정
+        image = "http" + image.split("http")[-1]
     return {
-        "image": _meta(page, "og:image"),
+        "image": image,
         "site": _meta(page, "og:site_name"),
         "text": text,
     }
@@ -275,8 +278,41 @@ PHOTO_PROMPT = """너는 해외축구 인스타 계정의 사진 담당이야.
 JSON으로만 답해: {{"choice": 번호, "reason": "짧은 이유"}}"""
 
 
+def search_photos(query, n=12):
+    """카카오 이미지 검색으로 사진 후보 보충 (뉴스 사진 위주)"""
+    try:
+        r = requests.get(
+            "https://dapi.kakao.com/v2/search/image",
+            headers={"Authorization": f"KakaoAK {os.environ['KAKAO_REST_KEY']}"},
+            params={"query": query, "sort": "recency", "size": 40},
+            timeout=15,
+        )
+        r.raise_for_status()
+    except Exception as e:
+        print(f"[이미지 검색 실패] {query}: {e}")
+        return []
+    out = []
+    for d in r.json().get("documents", []):
+        dom = urlparse(d.get("doc_url", "")).netloc.replace("www.", "")
+        if any(w in dom for w in NON_NEWS):
+            continue
+        if d.get("width", 0) >= 700 and d.get("height", 0) >= 450:
+            out.append(d["image_url"])
+    return list(dict.fromkeys(out))[:n]
+
+
 def pick_photo(story, post, urls):
-    cands = card.photo_candidates(urls)
+    """1차: 기사 대표 사진 중 선택 → 없으면 2차: 이미지 검색 결과 중 선택"""
+    choice = _pick_from(story, post, urls)
+    if choice:
+        return choice
+    query = " ".join(post["hashtags"][:2]) or story["topic"]
+    print(f"[사진 보충] '{query}' 이미지 검색")
+    return _pick_from(story, post, search_photos(query))
+
+
+def _pick_from(story, post, urls):
+    cands = card.photo_candidates(urls, max_n=8)
     if not cands:
         return None
     if len(cands) == 1 and not settings.PHOTO_CHECK_SINGLE:
@@ -330,7 +366,7 @@ def _photo_api(prompt, work, files):
     return json.loads(re.search(r"\{.*\}", text, re.S).group(0))
 
 
-def write_post(story):
+def write_post(story, style="", used_hooks=()):
     details, candidates, sources = [], [], []
     for n, a in enumerate(story["articles"][:7]):
         info = fetch_article(a["link"])
@@ -339,13 +375,18 @@ def write_post(story):
         if n < 4:  # 글은 앞 4개 기사로, 사진 후보는 최대 7개 기사에서
             sources.append(info.get("site") or a["domain"])
             details.append(f"[제목] {a['title']}\n[요약] {a['desc']}\n[본문] {info.get('text', '')}")
+    style = style or settings.HOOK_STYLES[0]
+    used = " | ".join(" / ".join(h) for h in used_hooks) or "(없음)"
     prompt = f"""너는 해외축구 인스타 계정 '킥오프노트' 운영자야. 아래 기사들만 근거로 게시물을 써.
 
 규칙
 - 기사에 없는 사실, 숫자, 인용은 절대 만들지 마. 애매하면 빼.
 - 영어 기사는 한국어로 옮겨서 써. 선수·팀 이름은 한국에서 흔히 쓰는 표기로.
-- hook: 이미지 위에 들어갈 2줄. 해외축구 커뮤니티 말투(반말, ㅋㅋ/ㄷㄷ 가능)로 시선을 끌되 내용이 과장·왜곡되면 안 됨.
+- hook: 이미지 위에 들어갈 2줄. 해외축구 커뮤니티 말투(반말)로 시선을 끌되 내용이 과장·왜곡되면 안 됨.
   1줄째는 주인공(선수/팀), 2줄째는 사건. 각 줄 한글 14자 이내.
+  이번 게시물의 hook 스타일: {style}
+  금지: 'ㄷㄷ', 'ㅋㅋ', 'ㅠㅠ' 같은 자음 추임새는 쓰지 마. '미쳤다', '떴다'도 쓰지 마. 말맛은 문장 자체로 내.
+  오늘 이미 쓴 멘트(같은 어미·구조 반복 금지): {used}
 - caption_title: 설명란 첫 줄, 이모지 1개 포함, 30자 이내.
 - caption_body: 무슨 일이 있었는지 3~5문장, 존댓말 뉴스체. 핵심 기록/스코어가 있으면 포함.
 - hashtags: 선수·팀 이름 등 3~5개 (# 없이).

@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: kickoff
@@ -38,6 +40,8 @@ jobs:
         run: npm install -g @anthropic-ai/claude-code
       - name: 뉴스 수집 · 이미지 제작
         run: python make_posts.py
+      - name: 모아보기 페이지 만들기
+        run: python make_page.py
       - name: 결과 저장 (이미지를 공개 주소로 올림)
         run: |
           git config user.name "kickoff-bot"
@@ -46,7 +50,43 @@ jobs:
           git commit -m "게시물 준비 $(date +%F)" || echo "변경 없음"
           git pull --rebase
           git push
-      - name: 이미지가 공개될 때까지 잠시 대기
-        run: sleep 30
-      - name: 카카오톡 미리보기 전송
+
+  # 모아보기 페이지를 GitHub Pages에 올리고, 주소가 살아나면 카톡 전송
+  pages:
+    needs: make
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      TZ: Asia/Seoul
+      KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
+      KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+      KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: output
+      - id: deploy
+        uses: actions/deploy-pages@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 페이지가 열릴 때까지 확인
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.page_url }}$(date +%F)/")
+            [ "$code" = "200" ] && echo "OK" && exit 0
+            sleep 10
+          done
+          echo "페이지 확인 실패(그래도 카톡은 보냄)"
+      - name: 카카오톡 전송
         run: python kakao_preview.py

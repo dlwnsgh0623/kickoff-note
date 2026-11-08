@@ -9,7 +9,7 @@
 | 한국 시간 | 하는 일 |
 |---|---|
 | 18:00 | 뉴스 수집 → 화제순 5개 선정 → 멘트·본문 작성 → 카드 이미지 제작 |
-| 제작 직후 | 카톡으로 게시물 5개 전송 (각각 [이미지 저장] [본문 복사] 버튼) |
+| 제작 직후 | 모아보기 페이지(GitHub Pages)에 올리고 카톡으로 전송. 페이지에서 [이미지 저장] [본문 복사] |
 | 20:00 | 카톡에서 받아서 인스타에 직접 올리기 |
 
 ※ GitHub 서버 사정으로 몇 분~수십 분 늦게 시작될 때가 있어요.
@@ -22,6 +22,7 @@
 - `news.py` — 뉴스 수집·선정·글쓰기
 - `card.py` — 카드 이미지
 - `make_posts.py` — 위 과정을 순서대로 실행
+- `make_page.py` — 그날 게시물 모아보기 웹페이지 (휴대폰에서 저장·복사용)
 - `kakao_preview.py` — 카톡 전송
 - `output/날짜/` — 그날 만든 이미지(1~5.jpg)와 본문(1~5.txt)
 
@@ -36,7 +37,7 @@
 ### 꼭 확인할 것
 1. **저장소는 Public**이어야 해요. 카톡이 이미지를 공개 주소에서 가져가기 때문이에요.
 2. 카카오 디벨로퍼스 → 내 앱 → 플랫폼 → Web 사이트 도메인에
-   `https://raw.githubusercontent.com` 을 등록해야 카톡 버튼이 열려요.
+   `https://raw.githubusercontent.com` 과 `https://아이디.github.io` 를 등록해야 카톡 버튼이 열려요.
 3. Settings → Actions → General → Workflow permissions 를 **Read and write** 로.
 
 > API 키로 돌리고 싶으면 `ANTHROPIC_API_KEY`를 추가하고 make.yml의 env에도 넣으면 자동으로 API를 써요.

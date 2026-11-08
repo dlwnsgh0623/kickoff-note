@@ -34,3 +34,9 @@ def public_url(path):
     branch = os.environ.get("GITHUB_REF_NAME", "main")
     return f"https://raw.githubusercontent.com/{repo}/{branch}/{path.replace(os.sep, '/')}"
 
+
+
+def pages_url(path=""):
+    """GitHub Pages 주소 (output 폴더가 루트. 예: https://아이디.github.io/kickoff-note/2026-11-08/)"""
+    owner, repo = os.environ["GITHUB_REPOSITORY"].split("/")
+    return f"https://{owner}.github.io/{repo}/{path}"
