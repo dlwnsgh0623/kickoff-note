@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 9 * * *"   # UTC 09:00 = 한국 18:00
   workflow_dispatch:       # 수동 실행 버튼
+    inputs:
+      resend_only:
+        description: "카톡만 다시 보내기 (게시물 새로 안 만듦)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -16,6 +21,7 @@ concurrency:
 
 jobs:
   make:
+    if: ${{ !inputs.resend_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -54,6 +60,7 @@ jobs:
   # 모아보기 페이지를 GitHub Pages에 올리고, 주소가 살아나면 카톡 전송
   pages:
     needs: make
+    if: ${{ always() && (needs.make.result == 'success' || inputs.resend_only) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
