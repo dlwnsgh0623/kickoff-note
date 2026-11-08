@@ -51,11 +51,17 @@ def main():
         path = os.path.join(out, f"{i}.jpg")
         card.make_card(p["image_source"], p["hook"], path, p.get("highlight", 2))
         p["image_path"] = path
+        # 표지 뒤 관련 사진: 1-2.jpg, 1-3.jpg ...
+        p["extra_paths"] = []
+        for k, src in enumerate(p.get("extra_sources", []), 2):
+            ep = os.path.join(out, f"{i}-{k}.jpg")
+            if card.make_photo_slide(src, ep):
+                p["extra_paths"].append(ep)
         # 본문은 따로 텍스트 파일로도 저장 (카톡에서 열어서 복사하기 쉽게)
         p["caption_path"] = os.path.join(out, f"{i}.txt")
         with open(p["caption_path"], "w", encoding="utf-8") as f:
             f.write(p["caption"])
-        print(f"[완성 {i}] {p['outlets']}곳 보도 | {' / '.join(p['hook'])}")
+        print(f"[완성 {i}] {p['outlets']}곳 보도 | 사진 {1 + len(p['extra_paths'])}장 | {' / '.join(p['hook'])}")
 
     save_posts(posts, date)
     if len(posts) < settings.POST_COUNT:

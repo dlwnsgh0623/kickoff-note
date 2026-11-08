@@ -267,15 +267,19 @@ PHOTO_PROMPT = """너는 해외축구 인스타 계정의 사진 담당이야.
 주인공(선수/팀) 단서: {tags}
 
 후보 사진 파일: {files}
-각 사진을 직접 열어보고 이 게시물에 가장 맞는 사진 하나를 골라.
+각 사진을 직접 열어보고
+1) 표지(cover): 이 게시물 첫 장에 가장 맞는 사진 하나
+2) 추가(extras): 표지 뒤에 넘겨볼 관련 사진 최대 {n_extra}장 (표지와 다른 장면, 같은 이야기)
+를 골라.
 
-조건
-- 주제의 주인공 선수/팀이 나온 사진이어야 함 (다른 팀 유니폼이면 탈락)
+공통 조건
+- 주제의 주인공 선수/팀이 나온 사진이어야 함 (다른 팀 유니폼이면 탈락). 선수 이야기면 그 선수 본인이 보여야 함.
 - 다른 언론사의 제목·자막·로고·카드뉴스 글자가 크게 박힌 사진은 탈락 (작은 워터마크는 괜찮음)
-- 인물이 크게, 선명하게 나온 사진 우선
-- 맞는 사진이 없으면 0
+- 표지는 인물이 크게, 선명하게 나온 사진 우선
+- 추가 사진은 표지와 거의 같은 사진(같은 장면·같은 구도)이면 안 됨. 경기 장면, 세리머니, 감독, 관중 등 이야기를 보충하는 장면이면 좋음
+- 맞는 표지가 없으면 cover는 0, 맞는 추가 사진이 없으면 extras는 빈 배열
 
-JSON으로만 답해: {{"choice": 번호, "reason": "짧은 이유"}}"""
+JSON으로만 답해: {{"cover": 번호, "extras": [번호, ...], "reason": "짧은 이유"}}"""
 
 
 def search_photos(query, n=12):
@@ -302,21 +306,18 @@ def search_photos(query, n=12):
 
 
 def pick_photo(story, post, urls):
-    """1차: 기사 대표 사진 중 선택 → 없으면 2차: 이미지 검색 결과 중 선택"""
-    choice = _pick_from(story, post, urls)
-    if choice:
-        return choice
+    """기사 대표 사진 + 이미지 검색 사진을 모아 표지 1장과 추가 사진들을 고름.
+    돌려주는 값: (표지 주소 또는 None, [추가 사진 주소들])"""
     query = " ".join(post["hashtags"][:2]) or story["topic"]
-    print(f"[사진 보충] '{query}' 이미지 검색")
-    return _pick_from(story, post, search_photos(query))
+    searched = search_photos(query) if settings.EXTRA_PHOTOS or settings.PHOTO_SEARCH_FALLBACK else []
+    cover, extras = _pick_from(story, post, list(dict.fromkeys(urls + searched)))
+    return cover, extras
 
 
 def _pick_from(story, post, urls):
-    cands = card.photo_candidates(urls, max_n=8)
+    cands = card.photo_candidates(urls, max_n=10)
     if not cands:
-        return None
-    if len(cands) == 1 and not settings.PHOTO_CHECK_SINGLE:
-        return cands[0][0]
+        return None, []
     work = tempfile.mkdtemp(prefix="photos_")
     files = []
     for i, (_, img) in enumerate(cands, 1):
@@ -326,7 +327,8 @@ def _pick_from(story, post, urls):
         small.save(os.path.join(work, name), "JPEG", quality=85)
         files.append(name)
     prompt = PHOTO_PROMPT.format(topic=story["topic"], hook=" / ".join(post["hook"]),
-                                 tags=", ".join(post["hashtags"]), files=", ".join(files))
+                                 tags=", ".join(post["hashtags"]), files=", ".join(files),
+                                 n_extra=settings.EXTRA_PHOTOS)
     try:
         if os.environ.get("ANTHROPIC_API_KEY"):
             ans = _photo_api(prompt, work, files)
@@ -334,15 +336,17 @@ def _pick_from(story, post, urls):
             r = subprocess.run(
                 ["claude", "-p", "표준입력의 지시를 따라. Read 도구로 사진 파일들을 열어보고 JSON으로만 답해.",
                  "--model", settings.CLAUDE_CODE_MODEL, "--allowedTools", "Read", "--output-format", "text"],
-                input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=600, cwd=work,
+                input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=900, cwd=work,
             )
             ans = json.loads(re.search(r"\{.*\}", r.stdout, re.S).group(0))
-        n = int(ans.get("choice", 0))
-        print(f"[사진 선택] 후보 {len(cands)}장 중 {n}번 — {ans.get('reason', '')}")
-        return cands[n - 1][0] if 1 <= n <= len(cands) else None
+        n = int(ans.get("cover", ans.get("choice", 0)))
+        ok = lambda k: isinstance(k, int) and 1 <= k <= len(cands)
+        extras = [cands[k - 1][0] for k in ans.get("extras", []) if ok(k) and k != n][: settings.EXTRA_PHOTOS]
+        print(f"[사진 선택] 후보 {len(cands)}장 → 표지 {n}번, 추가 {len(extras)}장 — {ans.get('reason', '')}")
+        return (cands[n - 1][0] if ok(n) else None), extras
     except Exception as e:
         print(f"[사진 선택 실패] {e} → 첫 번째 후보 사용")
-        return cands[0][0]
+        return cands[0][0], []
 
 
 def _photo_api(prompt, work, files):
@@ -404,7 +408,7 @@ JSON으로만 답해:
 기사들:
 """ + "\n\n".join(details)
     post = ask_claude(prompt, max_tokens=1500)
-    image = pick_photo(story, post, list(dict.fromkeys(candidates)))
+    image, extra_images = pick_photo(story, post, list(dict.fromkeys(candidates)))
 
     # 해시태그는 최대 5개: 기본 1개 + 리그 1개 + 선수·팀 3개
     clean = lambda ts: [t.replace("#", "").replace(" ", "") for t in ts if t]
@@ -425,5 +429,6 @@ JSON으로만 답해:
         "highlight": int(post.get("highlight", 2)),
         "caption": caption[:2200],
         "image_source": image,
+        "extra_sources": extra_images,
         "article_links": [a["link"] for a in story["articles"][:4]],
     }

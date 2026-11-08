@@ -20,7 +20,12 @@ PAGE = """<!doctype html>
   h1 span {{ color:var(--sub); font-weight:400; font-size:14px; margin-left:8px; }}
   .tip {{ color:var(--sub); font-size:13px; margin:6px 0 0; line-height:1.5; }}
   .post {{ background:var(--card); margin:14px 16px; border-radius:16px; overflow:hidden; }}
-  .post img {{ width:100%; display:block; aspect-ratio:4/5; object-fit:cover; }}
+  .slides {{ display:flex; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; }}
+  .slide {{ position:relative; flex:0 0 100%; scroll-snap-align:start; }}
+  .slide img {{ width:100%; display:block; aspect-ratio:4/5; object-fit:cover; }}
+  .slide .n {{ position:absolute; top:10px; right:10px; background:rgba(0,0,0,.6); padding:4px 10px; border-radius:20px; font-size:12px; }}
+  .slide .dl {{ position:absolute; bottom:12px; right:12px; background:rgba(0,0,0,.65); color:#fff; padding:9px 14px;
+               border-radius:20px; font-size:13px; font-weight:700; text-decoration:none; }}
   .meta {{ padding:12px 14px 0; font-size:13px; color:var(--sub); }}
   .hook {{ padding:6px 14px 0; font-weight:700; font-size:16px; line-height:1.35; }}
   textarea {{ width:100%; height:150px; margin:10px 0 0; padding:12px 14px; border:0; background:#111; color:#ddd;
@@ -35,7 +40,7 @@ PAGE = """<!doctype html>
 </style></head><body>
 <header>
   <h1>KICK/OFF <span>{date} · {n}개</span></h1>
-  <p class="tip">이미지 저장이 안 되면 사진을 길게 눌러 저장하세요. 카톡 안에서 안 되면 오른쪽 위 메뉴 → '다른 브라우저로 열기'.</p>
+  <p class="tip">사진은 옆으로 넘겨서 순서대로 저장하세요. 저장이 안 되면 사진을 길게 눌러 저장. 카톡 안에서 안 되면 오른쪽 위 메뉴 → '다른 브라우저로 열기'.</p>
 </header>
 {posts}
 <footer>킥오프노트 자동 제작 · 올리기 전에 내용 한 번 확인!</footer>
@@ -52,15 +57,17 @@ async function copyText(btn, id) {{
 """
 
 POST = """<section class="post" id="post{i}">
-  <img src="{img}" alt="">
-  <div class="meta">{i}/{n} · {league} · {outlets}곳 보도</div>
+  <div class="slides">{slides}</div>
+  <div class="meta">{i}/{n} · {league} · {outlets}곳 보도 · 사진 {count}장</div>
   <div class="hook">{hook}</div>
   <textarea id="cap{i}" readonly>{caption}</textarea>
   <div class="btns">
-    <a class="save" href="{img}" download="kickoff_{date}_{i}.jpg">이미지 저장</a>
     <button class="copy" onclick="copyText(this,'cap{i}')">본문 복사</button>
   </div>
 </section>"""
+
+SLIDE = """<div class="slide"><img src="{img}" alt="" loading="lazy"><span class="n">{k}/{count}</span>
+  <a class="dl" href="{img}" download="kickoff_{date}_{i}_{k}.jpg">저장</a></div>"""
 
 
 def main():
@@ -69,8 +76,10 @@ def main():
     out = day_dir(date)
     blocks = []
     for i, p in enumerate(posts, 1):
+        imgs = [f"{i}.jpg"] + [os.path.basename(x) for x in p.get("extra_paths", [])]
+        slides = "".join(SLIDE.format(img=im, k=k, count=len(imgs), date=date, i=i) for k, im in enumerate(imgs, 1))
         blocks.append(POST.format(
-            i=i, n=len(posts), date=date, img=f"{i}.jpg",
+            i=i, n=len(posts), slides=slides, count=len(imgs),
             league=html.escape(p.get("league", "")), outlets=p.get("outlets", ""),
             hook="<br>".join(html.escape(h) for h in p["hook"]),
             caption=html.escape(p["caption"]),

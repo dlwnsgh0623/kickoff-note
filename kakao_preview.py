@@ -61,7 +61,7 @@ def main():
         send(token, {
             "object_type": "feed",
             "content": {
-                "title": f"[{i}/{len(posts)}] {p['league']}",
+                "title": f"[{i}/{len(posts)}] {p['league']} · 사진 {1 + len(p.get('extra_paths', []))}장",
                 "description": f"{' '.join(p['hook'])}\n{p['caption'].splitlines()[0]}",
                 "image_url": img,
                 "link": _link(img),

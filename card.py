@@ -79,14 +79,29 @@ def _is_real_photo(img):
     return white < 0.3 and std > 25
 
 
+def _ahash(img):
+    """사진 지문 (같은 사진이 다른 크기로 여러 기사에 쓰인 경우 걸러내기용)"""
+    g = img.convert("L").resize((16, 16))
+    px = list(g.getdata())
+    avg = sum(px) / len(px)
+    return [p > avg for p in px]
+
+
+def _same_photo(a, b):
+    return sum(x != y for x, y in zip(a, b)) < 20  # 256칸 중 20칸 미만 차이면 같은 사진
+
+
 def photo_candidates(urls, max_n=6):
-    """기본 검사(크기·카드뉴스 여부)를 통과한 사진 후보들: [(주소, 이미지), ...]"""
-    out = []
+    """기본 검사(크기·카드뉴스 여부·중복)를 통과한 사진 후보들: [(주소, 이미지), ...]"""
+    out, hashes = [], []
     for url in urls:
         for u in _variants(url):
             img = _load_photo(u)
             if img and img.width >= 600 and _is_real_photo(img):
-                out.append((u, img))
+                h = _ahash(img)
+                if not any(_same_photo(h, x) for x in hashes):
+                    out.append((u, img))
+                    hashes.append(h)
                 break
         if len(out) >= max_n:
             break
@@ -128,6 +143,22 @@ def _fit_size(lines, max_size=96, min_size=60):
         if all(d.textlength(l, font=f) <= W - SIDE * 2 for l in lines):
             return size
     return min_size
+
+
+def make_photo_slide(image_url, out_path):
+    """표지 뒤에 붙는 추가 사진: 4:5로 자르고 아래에 워드마크만 살짝"""
+    photo = _load_photo(image_url)
+    if not photo:
+        return False
+    img = _cover(photo)
+    mask = Image.new("L", (1, H))
+    start = int(H * 0.82)
+    for y in range(H):
+        mask.putpixel((0, y), 0 if y < start else min(170, int(170 * (y - start) / (H - start))))
+    img = Image.composite(Image.new("RGB", (W, H)), img, mask.resize((W, H)))
+    ImageDraw.Draw(img).text((W // 2, H - 58), settings.WORDMARK, font=_font(34), fill="white", anchor="mm")
+    img.save(out_path, "JPEG", quality=92)
+    return True
 
 
 def make_card(image_url, hook_lines, out_path, highlight=2):

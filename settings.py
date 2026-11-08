@@ -69,3 +69,6 @@ PHOTO_SEARCH_FALLBACK = True
 
 # 멘트 강조색 (레퍼런스 계정처럼 형광 연두). 흰색만 쓰려면 None
 HOOK_ACCENT = (200, 255, 60)
+
+# 표지 뒤에 붙일 관련 사진 최대 장수 (0이면 표지 1장만)
+EXTRA_PHOTOS = 3
