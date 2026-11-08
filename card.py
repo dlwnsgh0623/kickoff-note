@@ -121,7 +121,7 @@ def _fade(img):
     return Image.composite(Image.new("RGB", (W, H)), img, mask.resize((W, H)))
 
 
-def _fit_size(lines, max_size=84, min_size=56):
+def _fit_size(lines, max_size=96, min_size=60):
     d = ImageDraw.Draw(Image.new("RGB", (1, 1)))
     for size in range(max_size, min_size - 1, -2):
         f = _font(size)
@@ -130,7 +130,7 @@ def _fit_size(lines, max_size=84, min_size=56):
     return min_size
 
 
-def make_card(image_url, hook_lines, out_path):
+def make_card(image_url, hook_lines, out_path, highlight=2):
     photo = _load_photo(image_url)
     img = _cover(photo) if photo else _fallback_bg()
     img = _fade(img)
@@ -138,10 +138,11 @@ def make_card(image_url, hook_lines, out_path):
 
     size = _fit_size(hook_lines)
     f = _font(size)
-    line_h = int(size * 1.32)
-    y = H - 140 - line_h * len(hook_lines)
-    for line in hook_lines:
-        d.text((SIDE, y), line, font=f, fill="white")
+    line_h = int(size * 1.28)
+    y = H - 150 - line_h * len(hook_lines)
+    for i, line in enumerate(hook_lines, 1):
+        color = settings.HOOK_ACCENT if (settings.HOOK_ACCENT and i == highlight) else "white"
+        d.text((SIDE, y), line, font=f, fill=color)
         y += line_h
 
     d.text((W // 2, H - 58), settings.WORDMARK, font=_font(34), fill="white", anchor="mm")

@@ -49,7 +49,7 @@ def main():
     posts = (with_photo + without_photo)[: settings.POST_COUNT]
     for i, p in enumerate(posts, 1):
         path = os.path.join(out, f"{i}.jpg")
-        card.make_card(p["image_source"], p["hook"], path)
+        card.make_card(p["image_source"], p["hook"], path, p.get("highlight", 2))
         p["image_path"] = path
         # 본문은 따로 텍스트 파일로도 저장 (카톡에서 열어서 복사하기 쉽게)
         p["caption_path"] = os.path.join(out, f"{i}.txt")
