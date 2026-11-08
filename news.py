@@ -396,7 +396,7 @@ def write_post(story, style="", used_hooks=()):
 - highlight: hook 두 줄 중 강조(형광색)할 줄 번호. 보통 펀치라인 쪽(1 또는 2).
 - caption_title: 설명란 첫 줄, 이모지 1개 포함, 30자 이내.
 - caption_body: 무슨 일이 있었는지 3~5문장, 존댓말 뉴스체. 핵심 기록/스코어가 있으면 포함.
-- hashtags: 선수·팀 이름 등 3~5개 (# 없이).
+- hashtags: 선수·팀 이름 등 핵심만 3개 (# 없이).
 
 JSON으로만 답해:
 {{"hook":["1줄","2줄"],"highlight":2,"caption_title":"...","caption_body":"...","hashtags":["..."]}}
@@ -406,8 +406,11 @@ JSON으로만 답해:
     post = ask_claude(prompt, max_tokens=1500)
     image = pick_photo(story, post, list(dict.fromkeys(candidates)))
 
-    tags = settings.BASE_HASHTAGS + settings.LEAGUE_HASHTAGS.get(story["league"], []) + post["hashtags"]
-    tags = list(dict.fromkeys(t.replace("#", "").replace(" ", "") for t in tags))
+    # 해시태그는 최대 5개: 기본 1개 + 리그 1개 + 선수·팀 3개
+    clean = lambda ts: [t.replace("#", "").replace(" ", "") for t in ts if t]
+    base = clean(settings.BASE_HASHTAGS[:1] + settings.LEAGUE_HASHTAGS.get(story["league"], [])[:1])
+    specific = [t for t in dict.fromkeys(clean(post["hashtags"])) if t not in base]
+    tags = list(dict.fromkeys(base + specific))[: settings.MAX_HASHTAGS]
     src = ", ".join(list(dict.fromkeys(sources))[:2])
     caption = (
         f"{post['caption_title']}\n\n{post['caption_body']}\n\n"
