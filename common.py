@@ -7,7 +7,8 @@ KST = timezone(timedelta(hours=9))
 
 
 def today():
-    return datetime.now(KST).strftime("%Y-%m-%d")
+    # 다시 보내기 등에서 날짜를 지정하면 그 날짜 사용
+    return os.environ.get("KICKOFF_DATE") or datetime.now(KST).strftime("%Y-%m-%d")
 
 
 def day_dir(date=None):

@@ -9,6 +9,10 @@ on:
         description: "카톡만 다시 보내기 (게시물 새로 안 만듦)"
         type: boolean
         default: false
+      date:
+        description: "다시 보낼 날짜 (예: 2026-11-09). 비우면 오늘"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -65,9 +69,10 @@ jobs:
     timeout-minutes: 15
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deploy.outputs.page_url || steps.deploy2.outputs.page_url }}
     env:
       TZ: Asia/Seoul
+      KICKOFF_DATE: ${{ inputs.date }}
       KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
       KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
       KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
@@ -81,19 +86,33 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: output
+      # GitHub 쪽 일시 오류 대비: 실패하면 잠시 후 한 번 더. 그래도 실패해도 카톡은 보냄
       - id: deploy
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: 페이지 배포 재시도 대기
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 60
+      - id: deploy2
+        if: steps.deploy.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
       - uses: actions/setup-python@v5
+        if: always()
         with:
           python-version: "3.12"
       - run: pip install requests
+        if: always()
       - name: 페이지가 열릴 때까지 확인
+        if: always()
         run: |
+          D="${KICKOFF_DATE:-$(date +%F)}"
           for i in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.deploy.outputs.page_url }}$(date +%F)/")
+            code=$(curl -s -o /dev/null -w "%{http_code}" "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/$D/")
             [ "$code" = "200" ] && echo "OK" && exit 0
             sleep 10
           done
           echo "페이지 확인 실패(그래도 카톡은 보냄)"
       - name: 카카오톡 전송
+        if: always()
         run: python kakao_preview.py
