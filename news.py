@@ -246,9 +246,9 @@ def fetch_article(url):
         return {}
     body = re.sub(r"(?is)<(script|style).*?</\1>", " ", page)
     paras = [_clean(p) for p in re.findall(r"(?is)<p[^>]*>(.*?)</p>", body)]
-    text = " ".join(p for p in paras if len(p) > 30)[:2500]
+    text = " ".join(p for p in paras if len(p) > 30)[:4000]
     if len(text) < 200:  # <p>가 없는 사이트 대비
-        text = _clean(body)[:2500]
+        text = _clean(body)[:4000]
     image = _meta(page, "og:image")
     if image and image.count("http") > 1:  # 'https://cdn.../statichttps://img...' 같은 깨진 주소 보정
         image = "http" + image.split("http")[-1]
@@ -405,12 +405,19 @@ def write_post(story, style="", used_hooks=()):
   오늘 이미 쓴 멘트(같은 어미·구조·추임새 반복 금지): {used}
 - highlight: hook 두 줄 중 강조(형광색)할 줄 번호. 보통 펀치라인 쪽(1 또는 2).
 - caption_title: 설명란 첫 줄, 이모지 1개 포함, 30자 이내.
-- caption_body: 존댓말 뉴스체. 가독성이 최우선이야. 휴대폰에서 한눈에 읽히게 써.
-  · 3~4개 단락으로 나눠. 단락 사이는 빈 줄 하나(\n\n).
-  · 한 단락은 1~2문장, 한 문장은 짧게(되도록 50자 안팎). 긴 문장은 쪼개.
-  · 단락 구성: ① 무슨 일이 있었나(결과·핵심) ② 경기 흐름이나 배경 ③ 기록·숫자·발언 등 디테일 ④ 의미나 앞으로의 일정
-  · 핵심 기록/스코어/발언이 있으면 넣되, 기사에 없는 내용은 쓰지 마.
-  · 각 단락 첫머리에 그 단락에 맞는 이모지 1개 (예: ⚽ 📊 🗣️ 🔜). 이모지 외 꾸밈 기호는 쓰지 마.
+- caption_body: 실제 스포츠 기사처럼 충실하게, 존댓말 뉴스체. 분량은 공백 포함 900~1300자.
+  가독성도 중요해: 휴대폰에서 읽기 편하게 단락을 나눠.
+  · 5~7개 단락, 단락 사이는 빈 줄 하나(\n\n). 한 단락은 2~3문장.
+  · 한 문장은 되도록 60자 안팎. 너무 긴 문장은 쪼개.
+  · 단락 구성(기사에 있는 내용만, 없는 항목은 건너뛰기):
+    ① 리드: 무슨 일이 있었나 (결과·핵심 한 번에)
+    ② 경기/사건 흐름: 득점 시간, 결정적 장면, 전개 순서
+    ③ 주인공 활약·기록: 개인 기록, 수치, 비교 대상
+    ④ 발언: 감독·선수 인터뷰 (따옴표로 인용, 기사에 있을 때만)
+    ⑤ 배경·맥락: 최근 흐름, 순위, 이적설, 부상 등
+    ⑥ 전망: 순위 변화, 다음 경기 일정과 상대
+  · 여러 기사의 정보를 합쳐서 써. 기사에 없는 사실·숫자·인용은 절대 만들지 마.
+  · 각 단락 첫머리에 그 단락에 맞는 이모지 1개 (예: ⚽ 📊 🗣️ 📈 🔜). 이모지 외 꾸밈 기호는 쓰지 마.
 - hashtags: 선수·팀·감독·대회·라이벌팀 등 이 게시물과 관련된 태그 8~12개 (# 없이, 띄어쓰기 없이).
 
 JSON으로만 답해:
@@ -418,7 +425,7 @@ JSON으로만 답해:
 
 기사들:
 """ + "\n\n".join(details)
-    post = ask_claude(prompt, max_tokens=1500)
+    post = ask_claude(prompt, max_tokens=4000)
     image, extra_images = pick_photo(story, post, list(dict.fromkeys(candidates)))
 
     # 해시태그: 기본 + 리그 + 게시물 관련 태그 (인스타 최대 30개)
@@ -426,11 +433,13 @@ JSON으로만 답해:
     base = clean(settings.BASE_HASHTAGS + settings.LEAGUE_HASHTAGS.get(story["league"], []))
     tags = list(dict.fromkeys(base + clean(post["hashtags"])))[: settings.MAX_HASHTAGS]
     src = ", ".join(list(dict.fromkeys(sources))[:2])
-    caption = (
-        f"{post['caption_title']}\n\n{_tidy(post['caption_body'])}\n\n"
-        f"📰 출처: {src}\n📸 사진: 출처 기사\n\n"
-        f"{settings.ACCOUNT_HANDLE}\n" + " ".join("#" + t for t in tags)
-    )
+    tail = f"📰 출처: {src}\n📸 사진: 출처 기사\n\n{settings.ACCOUNT_HANDLE}\n" + " ".join("#" + t for t in tags)
+    paras = _tidy(post["caption_body"]).split("\n\n")
+    while True:  # 인스타 본문 한도 2200자: 넘으면 마지막 단락부터 빼기
+        caption = f"{post['caption_title']}\n\n" + "\n\n".join(paras) + "\n\n" + tail
+        if len(caption) <= 2200 or len(paras) <= 2:
+            break
+        paras = paras[:-1]
     return {
         "topic": story["topic"],
         "league": story["league"],
