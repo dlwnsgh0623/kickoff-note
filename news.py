@@ -370,6 +370,12 @@ def _photo_api(prompt, work, files):
     return json.loads(re.search(r"\{.*\}", text, re.S).group(0))
 
 
+def _is_blog(site, domain):
+    """언론사가 아닌 개인 블로그·커뮤니티인지"""
+    text = f"{site or ''} {domain or ''}".lower()
+    return any(w in text for w in ("블로그", "blog", "티스토리", "카페", "커뮤니티", "moonari"))
+
+
 def _tidy(body):
     """단락 사이 빈 줄 하나로 정리 (AI가 줄바꿈을 들쭉날쭉하게 줄 때 대비)"""
     paras = [p.strip() for p in re.split(r"\n\s*\n|(?<=[.!?])\n", body.strip()) if p.strip()]
@@ -378,11 +384,13 @@ def _tidy(body):
 
 def write_post(story, style="", used_hooks=()):
     details, candidates, sources = [], [], []
-    for n, a in enumerate(story["articles"][:7]):
+    for a in story["articles"][:7]:
         info = fetch_article(a["link"])
+        if _is_blog(info.get("site"), a["domain"]):
+            continue  # 개인 블로그는 글 재료·출처·사진에서 모두 제외
         if info.get("image"):
             candidates.append(info["image"])
-        if n < 4:  # 글은 앞 4개 기사로, 사진 후보는 최대 7개 기사에서
+        if len(details) < 4:  # 글은 언론사 기사 최대 4개로, 사진 후보는 최대 7개 기사에서
             sources.append(info.get("site") or a["domain"])
             details.append(f"[제목] {a['title']}\n[요약] {a['desc']}\n[본문] {info.get('text', '')}")
     style = style or settings.HOOK_STYLES[0]
@@ -407,8 +415,8 @@ def write_post(story, style="", used_hooks=()):
 - caption_title: 설명란 첫 줄, 이모지 1개 포함, 30자 이내.
 - caption_body: 실제 스포츠 기사처럼 충실하게, 존댓말 뉴스체. 분량은 공백 포함 900~1300자.
   가독성도 중요해: 휴대폰에서 읽기 편하게 단락을 나눠.
-  · 5~7개 단락, 단락 사이는 빈 줄 하나(\n\n). 한 단락은 2~3문장.
-  · 한 문장은 되도록 60자 안팎. 너무 긴 문장은 쪼개.
+  · 5~7개 단락, 단락 사이는 빈 줄 하나(\n\n). 한 단락은 2~3문장, 단락 하나는 200자를 넘지 마.
+  · 한 문장은 60자 안팎. '~했고, ~했지만, ~하며'처럼 이어 붙인 긴 문장은 반드시 쪼개.
   · 단락 구성(기사에 있는 내용만, 없는 항목은 건너뛰기):
     ① 리드: 무슨 일이 있었나 (결과·핵심 한 번에)
     ② 경기/사건 흐름: 득점 시간, 결정적 장면, 전개 순서
