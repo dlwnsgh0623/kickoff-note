@@ -12,11 +12,11 @@ WORDMARK = "KICK/OFF"
 # 계정 아이디 (설명란 맨 끝에 붙어요)
 ACCOUNT_HANDLE = "@kickoff.note"
 
-# 해시태그 최대 개수 (인스타 제한)
-MAX_HASHTAGS = 5
+# 해시태그 최대 개수 (인스타그램 자체 한도가 30개)
+MAX_HASHTAGS = 30
 
-# 기본 해시태그 (맨 앞 1개만 모든 게시물에 붙음)
-BASE_HASHTAGS = ["해외축구", "킥오프노트", "축구뉴스"]
+# 기본 해시태그 (모든 게시물에 붙음)
+BASE_HASHTAGS = ["해외축구", "킥오프노트", "축구뉴스", "해축", "축구"]
 
 # 리그 → 해시태그
 LEAGUE_HASHTAGS = {

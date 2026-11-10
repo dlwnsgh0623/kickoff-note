@@ -370,6 +370,12 @@ def _photo_api(prompt, work, files):
     return json.loads(re.search(r"\{.*\}", text, re.S).group(0))
 
 
+def _tidy(body):
+    """단락 사이 빈 줄 하나로 정리 (AI가 줄바꿈을 들쭉날쭉하게 줄 때 대비)"""
+    paras = [p.strip() for p in re.split(r"\n\s*\n|(?<=[.!?])\n", body.strip()) if p.strip()]
+    return "\n\n".join(paras)
+
+
 def write_post(story, style="", used_hooks=()):
     details, candidates, sources = [], [], []
     for n, a in enumerate(story["articles"][:7]):
@@ -399,25 +405,29 @@ def write_post(story, style="", used_hooks=()):
   오늘 이미 쓴 멘트(같은 어미·구조·추임새 반복 금지): {used}
 - highlight: hook 두 줄 중 강조(형광색)할 줄 번호. 보통 펀치라인 쪽(1 또는 2).
 - caption_title: 설명란 첫 줄, 이모지 1개 포함, 30자 이내.
-- caption_body: 무슨 일이 있었는지 3~5문장, 존댓말 뉴스체. 핵심 기록/스코어가 있으면 포함.
-- hashtags: 선수·팀 이름 등 핵심만 3개 (# 없이).
+- caption_body: 존댓말 뉴스체. 가독성이 최우선이야. 휴대폰에서 한눈에 읽히게 써.
+  · 3~4개 단락으로 나눠. 단락 사이는 빈 줄 하나(\n\n).
+  · 한 단락은 1~2문장, 한 문장은 짧게(되도록 50자 안팎). 긴 문장은 쪼개.
+  · 단락 구성: ① 무슨 일이 있었나(결과·핵심) ② 경기 흐름이나 배경 ③ 기록·숫자·발언 등 디테일 ④ 의미나 앞으로의 일정
+  · 핵심 기록/스코어/발언이 있으면 넣되, 기사에 없는 내용은 쓰지 마.
+  · 각 단락 첫머리에 그 단락에 맞는 이모지 1개 (예: ⚽ 📊 🗣️ 🔜). 이모지 외 꾸밈 기호는 쓰지 마.
+- hashtags: 선수·팀·감독·대회·라이벌팀 등 이 게시물과 관련된 태그 8~12개 (# 없이, 띄어쓰기 없이).
 
 JSON으로만 답해:
-{{"hook":["1줄","2줄"],"highlight":2,"caption_title":"...","caption_body":"...","hashtags":["..."]}}
+{{"hook":["1줄","2줄"],"highlight":2,"caption_title":"...","caption_body":"단락1\\n\\n단락2\\n\\n단락3","hashtags":["..."]}}
 
 기사들:
 """ + "\n\n".join(details)
     post = ask_claude(prompt, max_tokens=1500)
     image, extra_images = pick_photo(story, post, list(dict.fromkeys(candidates)))
 
-    # 해시태그는 최대 5개: 기본 1개 + 리그 1개 + 선수·팀 3개
+    # 해시태그: 기본 + 리그 + 게시물 관련 태그 (인스타 최대 30개)
     clean = lambda ts: [t.replace("#", "").replace(" ", "") for t in ts if t]
-    base = clean(settings.BASE_HASHTAGS[:1] + settings.LEAGUE_HASHTAGS.get(story["league"], [])[:1])
-    specific = [t for t in dict.fromkeys(clean(post["hashtags"])) if t not in base]
-    tags = list(dict.fromkeys(base + specific))[: settings.MAX_HASHTAGS]
+    base = clean(settings.BASE_HASHTAGS + settings.LEAGUE_HASHTAGS.get(story["league"], []))
+    tags = list(dict.fromkeys(base + clean(post["hashtags"])))[: settings.MAX_HASHTAGS]
     src = ", ".join(list(dict.fromkeys(sources))[:2])
     caption = (
-        f"{post['caption_title']}\n\n{post['caption_body']}\n\n"
+        f"{post['caption_title']}\n\n{_tidy(post['caption_body'])}\n\n"
         f"📰 출처: {src}\n📸 사진: 출처 기사\n\n"
         f"{settings.ACCOUNT_HANDLE}\n" + " ".join("#" + t for t in tags)
     )
