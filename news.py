@@ -373,7 +373,7 @@ def _photo_api(prompt, work, files):
 def _is_blog(site, domain):
     """언론사가 아닌 개인 블로그·커뮤니티인지"""
     text = f"{site or ''} {domain or ''}".lower()
-    return any(w in text for w in ("블로그", "blog", "티스토리", "카페", "커뮤니티", "moonari"))
+    return any(w in text for w in ("블로그", "blog", "티스토리", "tistory", "카페", "cafe", "커뮤니티", "moonari"))
 
 
 def _tidy(body):
