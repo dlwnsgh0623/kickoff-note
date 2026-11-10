@@ -27,7 +27,16 @@ def main():
     if not articles:
         sys.exit("기사를 하나도 못 모았어요. 카카오 REST 키를 확인해주세요.")
 
-    stories = news.pick_stories(articles, recent_topics())
+    stories = []
+    for attempt in range(2):  # AI 답이 이상하면 한 번 더
+        try:
+            stories = news.pick_stories(articles, recent_topics())
+            if stories:
+                break
+        except Exception as e:
+            print(f"[선정 실패 {attempt + 1}회] {type(e).__name__} {e}")
+    if not stories:
+        sys.exit("오늘 뉴스 선정에 실패했어요.")
     print(f"[선정] 후보 {len(stories)}개")
 
     with_photo, without_photo = [], []
@@ -39,11 +48,11 @@ def main():
         try:
             post = news.write_post(s, style=style, used_hooks=used)
         except Exception as e:
-            print(f"[작성 실패] {s['topic']}: {e}")
+            print(f"[작성 실패] {s.get('topic', '?')}: {type(e).__name__} {e}")
             continue
         (with_photo if post["image_source"] else without_photo).append(post)
         if not post["image_source"]:
-            print(f"[사진 없음] {s['topic']}")
+            print(f"[사진 없음] {s.get('topic', '?')}")
 
     # 표지 사진이 있는 게시물만 사용. 그래도 모자란 날에만 사진 없는 게시물로 채우고 카톡에 표시
     posts = (with_photo + without_photo)[: settings.POST_COUNT]
@@ -51,7 +60,12 @@ def main():
         print(f"[주의] 표지 사진을 찾은 게시물이 {len(with_photo)}개뿐이에요")
     for i, p in enumerate(posts, 1):
         path = os.path.join(out, f"{i}.jpg")
-        card.make_card(p["image_source"], p["hook"], path, p.get("highlight", 2))
+        try:
+            card.make_card(p["image_source"], p["hook"], path, p.get("highlight", 2))
+        except Exception as e:  # 사진이 깨져 있어도 기본 배경으로라도 만들기
+            print(f"[카드 실패 {i}] {e} → 기본 배경 사용")
+            p["image_source"] = None
+            card.make_card(None, p["hook"], path, p.get("highlight", 2))
         p["image_path"] = path
         # 표지 뒤 관련 사진: 1-2.jpg, 1-3.jpg ...
         p["extra_paths"] = []
@@ -65,6 +79,8 @@ def main():
             f.write(p["caption"])
         print(f"[완성 {i}] {p['outlets']}곳 보도 | 사진 {1 + len(p['extra_paths'])}장 | {' / '.join(p['hook'])}")
 
+    if not posts:
+        sys.exit("게시물을 하나도 만들지 못했어요.")
     save_posts(posts, date)
     if len(posts) < settings.POST_COUNT:
         print(f"[주의] {len(posts)}개만 만들었어요")

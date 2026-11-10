@@ -213,10 +213,14 @@ JSON으로만 답해:
 
 기사 목록:
 {lines}"""
-    stories = ask_claude(prompt)["stories"]
+    stories = [s for s in ask_claude(prompt).get("stories", []) if isinstance(s, dict)]
     by_id = {a["id"]: a for a in articles}
     for s in stories:
-        s["articles"] = [by_id[i] for i in s["article_ids"] if i in by_id]
+        # AI가 항목을 빼먹어도 멈추지 않게 기본값 채우기
+        ids = s.get("article_ids") or []
+        s["articles"] = [by_id[i] for i in ids if isinstance(i, int) and i in by_id]
+        s["topic"] = s.get("topic") or (s["articles"][0]["title"] if s["articles"] else "제목 없음")
+        s["league"] = s.get("league") or ""
         s["outlets"] = len({a["domain"] for a in s["articles"]})
         # 화제 점수 = 보도한 언론사 수 + (지정 RSS 사이트가 다뤘으면 가산점)
         s["score"] = s["outlets"] + (settings.RSS_BONUS if any(a.get("priority") for a in s["articles"]) else 0)

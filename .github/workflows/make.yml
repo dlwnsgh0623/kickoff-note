@@ -60,6 +60,9 @@ jobs:
           git commit -m "게시물 준비 $(date +%F)" || echo "변경 없음"
           git pull --rebase
           git push
+      - name: 실패하면 카톡으로 알림
+        if: failure()
+        run: python notify_fail.py
 
   # 모아보기 페이지를 GitHub Pages에 올리고, 주소가 살아나면 카톡 전송
   pages:
