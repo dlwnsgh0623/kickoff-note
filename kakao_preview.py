@@ -61,7 +61,8 @@ def main():
         send(token, {
             "object_type": "feed",
             "content": {
-                "title": f"[{i}/{len(posts)}] {p['league']} · 사진 {1 + len(p.get('extra_paths', []))}장",
+                "title": (f"[{i}/{len(posts)}] {p['league']} · 사진 {1 + len(p.get('extra_paths', []))}장"
+                          if p.get("image_source") else f"[{i}/{len(posts)}] ⚠️ 표지 사진 없음 — 직접 사진 넣어서 올려주세요"),
                 "description": f"{' '.join(p['hook'])}\n{p['caption'].splitlines()[0]}",
                 "image_url": img,
                 "link": _link(img),

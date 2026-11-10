@@ -204,7 +204,7 @@ def pick_stories(articles, recent_titles):
 1) 같은 사건/이슈를 다룬 기사끼리 묶어. 한국 기사와 영어 기사도 같은 이슈면 한 묶음으로.
 2) 대상: 프리미어리그, 라리가, 분데스리가, 세리에A, 리그1, 사우디 프로리그 소속 팀·선수 이야기
    (이 리그 팀이 뛰는 챔피언스리그/유로파리그 경기도 포함). 그 외 리그, K리그, 국가대표, 광고성 기사는 제외.
-3) 서로 다른 언론사가 많이 다룬 이슈일수록 화제. 화제 순으로 {settings.POST_COUNT + 7}개를 골라.
+3) 서로 다른 언론사가 많이 다룬 이슈일수록 화제. 화제 순으로 {settings.POST_COUNT + 10}개를 골라.
 4) 최근 이미 올린 이슈와 같은 내용은 제외:
 {recent}
 
@@ -307,14 +307,32 @@ def search_photos(query, n=12):
 
 def pick_photo(story, post, urls):
     """기사 대표 사진 + 이미지 검색 사진을 모아 표지 1장과 추가 사진들을 고름.
+    표지를 못 찾으면 ① 검색어를 바꿔 다시 찾고 ② 그래도 없으면 조건을 조금 완화해서 고름.
     돌려주는 값: (표지 주소 또는 None, [추가 사진 주소들])"""
-    query = " ".join(post["hashtags"][:2]) or story["topic"]
-    searched = search_photos(query) if settings.EXTRA_PHOTOS or settings.PHOTO_SEARCH_FALLBACK else []
-    cover, extras = _pick_from(story, post, list(dict.fromkeys(urls + searched)))
-    return cover, extras
+    tags = [t for t in post["hashtags"] if t]
+    query = " ".join(tags[:2]) or story["topic"]
+    pool = list(dict.fromkeys(urls + search_photos(query)))
+    cover, extras = _pick_from(story, post, pool)
+    if cover:
+        return cover, extras
+
+    # ① 검색어 바꿔서 (선수·팀 이름 하나씩, 주제 문장)
+    more = []
+    for q in tags[:3] + [story["topic"]]:
+        more += search_photos(q + " 축구", n=8)
+    new = [u for u in dict.fromkeys(more) if u not in pool]
+    print(f"[사진 재검색] 새 후보 {len(new)}장")
+    if new:
+        cover, extras = _pick_from(story, post, new + pool)
+        if cover:
+            return cover, extras
+
+    # ② 조건 완화 (작은 로고·팀 단체 사진 허용)
+    print("[사진 완화] 조건을 완화해서 다시 선택")
+    return _pick_from(story, post, new + pool, relaxed=True)
 
 
-def _pick_from(story, post, urls):
+def _pick_from(story, post, urls, relaxed=False):
     cands = card.photo_candidates(urls, max_n=10)
     if not cands:
         return None, []
@@ -329,6 +347,13 @@ def _pick_from(story, post, urls):
     prompt = PHOTO_PROMPT.format(topic=story["topic"], hook=" / ".join(post["hook"]),
                                  tags=", ".join(post["hashtags"]), files=", ".join(files),
                                  n_extra=settings.EXTRA_PHOTOS)
+    if relaxed:
+        prompt += """
+
+[완화 모드] 표지가 꼭 있어야 해서 조건을 조금 풀어줄게.
+- 주인공 본인이 없으면 같은 팀 선수·감독·경기장·팀 단체 사진도 표지로 OK (다른 팀 사진은 여전히 안 됨)
+- 구석의 언론사 로고·작은 배너는 괜찮음 (사진 대부분을 가리는 큰 글자만 안 됨)
+- 이 기준으로도 정말 없으면 0"""
     try:
         if os.environ.get("ANTHROPIC_API_KEY"):
             ans = _photo_api(prompt, work, files)
@@ -382,6 +407,45 @@ def _tidy(body):
     return "\n\n".join(paras)
 
 
+HEARSAY = re.compile(r"(래|라네|다네|다고\s*함|[한된간는온난진운]대)[?!.~]*$")
+
+
+def _is_hearsay(line):
+    """'~래', '~했대', '~이겼대', '~한대' 같은 전해 들은 말투로 끝나는지"""
+    t = re.sub(r"[?!.~\s]+$", "", line.strip())
+    if HEARSAY.search(t):
+        return True
+    # 'ㅆ' 받침 + 대 (했대·이겼대·났대·됐대 …)
+    if len(t) >= 2 and t[-1] == "대" and "가" <= t[-2] <= "힣":
+        return (ord(t[-2]) - 0xAC00) % 28 == 20
+    return False
+
+
+def _hook_ok(hook):
+    return not any(_is_hearsay(line) for line in hook)
+
+
+def _fix_hook(post, style):
+    """멘트가 전달체(~래 등)로 끝나면 한 번 더 다시 쓰게 함"""
+    prompt = f"""해외축구 인스타 썸네일 문구를 고쳐줘.
+지금 문구: {post['hook'][0]} / {post['hook'][1]}
+문제: '~래', '~대', '~거래', '~이래' 같은 전해 들은 말투로 끝남. 커뮤니티 글 제목처럼 단정하거나 반응하는 말투로 바꿔.
+예: '지금 18위 경질 위기래' → '지금 18위 경질 각' / '감독 사과 원했던 거래' → '감독 사과가 먼저였음'
+내용(사실)은 그대로, 각 줄 한글 13자 이내, 스타일: {style}
+JSON으로만: {{"hook":["1줄","2줄"],"highlight":1또는2}}"""
+    for _ in range(2):
+        try:
+            r = ask_claude(prompt, max_tokens=300)
+        except Exception as e:
+            print(f"[멘트 수정 실패] {e}")
+            return post
+        if _hook_ok(r.get("hook", [])):
+            print(f"[멘트 수정] {' / '.join(post['hook'])} → {' / '.join(r['hook'])}")
+            post["hook"], post["highlight"] = r["hook"][:2], r.get("highlight", post.get("highlight", 2))
+            return post
+    return post
+
+
 def write_post(story, style="", used_hooks=()):
     details, candidates, sources = [], [], []
     for a in story["articles"][:7]:
@@ -407,7 +471,10 @@ def write_post(story, style="", used_hooks=()):
     좋은 예: '이게 그 7연승 맨시티 맞음? / 노팅엄한테 1-3 처맞음', '케인 결국 뮌헨 잔류 / 발롱도르 들고 재계약',
             '김민재 2경기 연속 벤치 / 콤파니 진심인가', '리버풀 챔스 첫 패배 / 이스탄불 원정은 역시 지옥'
   구조: 1줄째 = 주인공+상황을 끊어 치는 짧은 구, 2줄째 = 펀치라인(반전·수치·팬 반응). 각 줄 한글 13자 이내.
-  입말 허용: '~맞음?', '~임', '~함', '~래', '~하네', '~실화냐', '근황', '처맞음', '폼 미쳤다' 등 커뮤니티 어휘.
+  입말 허용: '~맞음?', '~임', '~함', '~하네', '~실화냐', '~각', '~ㅈ됨' 대신 '~망함', '근황', '처맞음', '폼 미쳤다', '레전드' 등 커뮤니티 어휘.
+  금지: '~래', '~대'(했대·한대·된대), '~거래', '~이래', '~라네', '~다고 함' 같은 전해 들은 말투. 커뮤 글 제목은 남 얘기 전하듯 쓰지 않고 단정하거나 반응해.
+    나쁜 예: '지금 18위 경질 위기래' → 좋은 예: '지금 18위 경질 각' / '18위까지 추락함'
+    나쁜 예: '감독 사과 원했던 거래' → 좋은 예: '감독 사과가 먼저였음' / '결국 감독이랑 틀어짐'
   추임새(ㅋㅋ, ㄷㄷ, ㅠㅠ, ;;)는 멘트 전체에서 최대 1개, 그리고 오늘 이미 쓴 추임새는 다시 쓰지 마.
   이번 게시물의 hook 스타일: {style}
   오늘 이미 쓴 멘트(같은 어미·구조·추임새 반복 금지): {used}
@@ -434,6 +501,8 @@ JSON으로만 답해:
 기사들:
 """ + "\n\n".join(details)
     post = ask_claude(prompt, max_tokens=4000)
+    if not _hook_ok(post["hook"]):
+        post = _fix_hook(post, style)
     image, extra_images = pick_photo(story, post, list(dict.fromkeys(candidates)))
 
     # 해시태그: 기본 + 리그 + 게시물 관련 태그 (인스타 최대 30개)

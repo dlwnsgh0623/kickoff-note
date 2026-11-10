@@ -45,8 +45,10 @@ def main():
         if not post["image_source"]:
             print(f"[사진 없음] {s['topic']}")
 
-    # 사진 있는 게시물 우선, 모자라면 기본 배경 게시물로 채움
+    # 표지 사진이 있는 게시물만 사용. 그래도 모자란 날에만 사진 없는 게시물로 채우고 카톡에 표시
     posts = (with_photo + without_photo)[: settings.POST_COUNT]
+    if len(with_photo) < settings.POST_COUNT:
+        print(f"[주의] 표지 사진을 찾은 게시물이 {len(with_photo)}개뿐이에요")
     for i, p in enumerate(posts, 1):
         path = os.path.join(out, f"{i}.jpg")
         card.make_card(p["image_source"], p["hook"], path, p.get("highlight", 2))
