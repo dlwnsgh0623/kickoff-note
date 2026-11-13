@@ -102,31 +102,46 @@ def collect_articles():
     return articles
 
 
-def search_articles(query, hours=72, limit=8):
-    """한 가지 검색어로 최근 언론사 기사 찾기 (게시물 다시 만들 때 사용)"""
+def search_articles(query, hours=168, limit=8):
+    """주제 검색어로 최근 언론사 기사 찾기 (게시물 다시 만들 때 사용).
+    정확한 문구로 안 나오면 단어를 줄여가며(두 단어씩, 이름만) 다시 찾아요.
+    결과는 검색어의 이름 단어가 제목·요약에 들어간 기사만 남겨요."""
     headers = {"Authorization": f"KakaoAK {os.environ['KAKAO_REST_KEY']}"}
     since = datetime.now(KST) - timedelta(hours=hours)
+    words = [w for w in re.split(r"[\s,·…]+", query) if len(w) >= 2]
+    # 사람 이름은 보통 '이름 성' 순서라 두 번째 단어(성)를 핵심어로 사용 ("아르나우 오르티스" → "오르티스")
+    key = words[1] if len(words) >= 2 else (words[0] if words else query)
+    variants = [query] + [" ".join(words[i:i + 2]) for i in range(len(words) - 1)] + [key]
+    variants = list(dict.fromkeys(v for v in variants if v))
+    keys = [key]
     out, seen = [], set()
-    for sort in ("accuracy", "recency"):
-        try:
-            r = requests.get("https://dapi.kakao.com/v2/search/web", headers=headers,
-                             params={"query": query, "sort": sort, "size": 30}, timeout=15)
-            r.raise_for_status()
-        except Exception as e:
-            print(f"[기사 검색 실패] {query}: {e}")
-            continue
-        for it in r.json().get("documents", []):
-            link = it["url"]
+    for v in variants:
+        for sort in ("recency", "accuracy"):
             try:
-                if datetime.fromisoformat(it["datetime"]) < since:
+                r = requests.get("https://dapi.kakao.com/v2/search/web", headers=headers,
+                                 params={"query": v, "sort": sort, "size": 50}, timeout=15)
+                r.raise_for_status()
+            except Exception as e:
+                print(f"[기사 검색 실패] {v}: {e}")
+                continue
+            for it in r.json().get("documents", []):
+                link = it["url"]
+                try:
+                    if datetime.fromisoformat(it["datetime"]) < since:
+                        continue
+                except Exception:
                     continue
-            except Exception:
-                continue
-            if link in seen or not _is_news_link(link):
-                continue
-            seen.add(link)
-            out.append({"id": len(out), "title": _clean(it["title"]), "desc": _clean(it.get("contents")),
-                        "link": link, "domain": urlparse(link).netloc.replace("www.", "")})
+                title, desc = _clean(it["title"]), _clean(it.get("contents"))
+                if link in seen or not _is_news_link(link):
+                    continue
+                if not any(k in title + desc for k in keys):
+                    continue
+                seen.add(link)
+                out.append({"id": len(out), "title": title, "desc": desc,
+                            "link": link, "domain": urlparse(link).netloc.replace("www.", "")})
+        print(f"[기사 검색] '{v}' → 누적 {len(out)}개")
+        if len(out) >= limit:
+            break
     return out[:limit]
 
 

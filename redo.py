@@ -32,6 +32,7 @@ def main():
     if not posts:
         sys.exit(f"{date} 게시물이 없어요")
 
+    changed = 0
     for num, query in parse(sys.argv[1] if len(sys.argv) > 1 else ""):
         if not 1 <= num <= len(posts):
             print(f"[건너뜀] {num}번 게시물이 없어요")
@@ -69,9 +70,12 @@ def main():
         with open(post["caption_path"], "w", encoding="utf-8") as f:
             f.write(post["caption"])
         posts[num - 1] = post
+        changed += 1
         print(f"[완성 {num}] 사진 {1 + len(post['extra_paths'])}장 | {' / '.join(post['hook'])}")
 
     save_posts(posts, date)
+    if not changed:
+        sys.exit("다시 만든 게시물이 없어요 (카톡은 보내지 않아요)")
 
 
 if __name__ == "__main__":
