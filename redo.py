@@ -6,6 +6,7 @@
 """
 import glob
 import os
+import re
 import sys
 
 import card
@@ -15,9 +16,11 @@ from common import day_dir, load_posts, save_posts, today
 
 
 def parse(spec):
+    """'4=검색어, 5' → [(4, '검색어'), (5, '')]. 기사 주소 안의 쉼표·'='는 깨지지 않게 처리"""
+    parts = re.split(r"[;,]\s*(?=\d+\s*(?:=|[;,]|$))", spec.strip())
     out = []
-    for part in spec.split(","):
-        part = part.strip()
+    for part in parts:
+        part = part.strip().rstrip(",;")
         if not part:
             continue
         num, _, query = part.partition("=")
@@ -44,7 +47,8 @@ def main():
         if not articles:
             print(f"[실패 {num}] '{query}' 관련 언론사 기사를 못 찾았어요 → 기존 게시물 유지")
             continue
-        story = {"topic": query, "league": old.get("league", ""), "articles": articles,
+        topic = query if not query.startswith("http") else (old.get("subject") or old["topic"])
+        story = {"topic": topic, "league": old.get("league", ""), "articles": articles,
                  "outlets": len({a["domain"] for a in articles})}
         others = [p["hook"] for i, p in enumerate(posts) if i != num - 1]
         style = settings.HOOK_STYLES[(num - 1) % len(settings.HOOK_STYLES)]

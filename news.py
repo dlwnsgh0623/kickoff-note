@@ -114,6 +114,11 @@ def search_articles(query, hours=168, limit=8):
     headers = {"Authorization": f"KakaoAK {os.environ['KAKAO_REST_KEY']}"}
     since = datetime.now(KST) - timedelta(hours=hours)
     out, seen = [], set()
+    # 기사 주소를 직접 넣은 경우 (공백으로 여러 개): 그 기사들로 바로 만들기
+    urls = re.findall(r"https?://\S+", query)
+    if urls:
+        return [{"id": i, "title": "", "desc": "", "link": u,
+                 "domain": urlparse(u).netloc.replace("www.", "")} for i, u in enumerate(urls[:limit])]
     for alt in [a.strip() for a in query.split("/") if a.strip()]:
         words = [w for w in re.split(r"[\s,·…]+", alt) if len(w) >= 2]
         # 사람 이름은 보통 '이름 성' 순서라 두 번째 단어(성)를 핵심어로 사용
