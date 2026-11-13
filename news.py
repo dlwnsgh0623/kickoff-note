@@ -102,46 +102,51 @@ def collect_articles():
     return articles
 
 
+FOOTBALL = re.compile(r"축구|감독|선수|리그|이적|구단|득점|골|경기|라리가|프리미어|분데스|세리에|챔스|"
+                      r"football|soccer|laliga|premier|bundesliga|serie a|coach|manager|striker|midfielder|club|goal",
+                      re.I)
+
+
 def search_articles(query, hours=168, limit=8):
-    """주제 검색어로 최근 언론사 기사 찾기 (게시물 다시 만들 때 사용).
-    정확한 문구로 안 나오면 단어를 줄여가며(두 단어씩, 이름만) 다시 찾아요.
-    결과는 검색어의 이름 단어가 제목·요약에 들어간 기사만 남겨요."""
+    """주제 검색어로 최근 축구 기사 찾기 (게시물 다시 만들 때 사용).
+    '/'로 여러 검색어 가능 (예: "아르나우 오르티스 아틀레티코/Arnau Ortiz Atletico").
+    정확한 문구로 안 나오면 단어를 줄여가며 다시 찾고, 이름(성)이 들어간 축구 기사만 남겨요."""
     headers = {"Authorization": f"KakaoAK {os.environ['KAKAO_REST_KEY']}"}
     since = datetime.now(KST) - timedelta(hours=hours)
-    words = [w for w in re.split(r"[\s,·…]+", query) if len(w) >= 2]
-    # 사람 이름은 보통 '이름 성' 순서라 두 번째 단어(성)를 핵심어로 사용 ("아르나우 오르티스" → "오르티스")
-    key = words[1] if len(words) >= 2 else (words[0] if words else query)
-    variants = [query] + [" ".join(words[i:i + 2]) for i in range(len(words) - 1)] + [key]
-    variants = list(dict.fromkeys(v for v in variants if v))
-    keys = [key]
     out, seen = [], set()
-    for v in variants:
-        for sort in ("recency", "accuracy"):
-            try:
-                r = requests.get("https://dapi.kakao.com/v2/search/web", headers=headers,
-                                 params={"query": v, "sort": sort, "size": 50}, timeout=15)
-                r.raise_for_status()
-            except Exception as e:
-                print(f"[기사 검색 실패] {v}: {e}")
-                continue
-            for it in r.json().get("documents", []):
-                link = it["url"]
+    for alt in [a.strip() for a in query.split("/") if a.strip()]:
+        words = [w for w in re.split(r"[\s,·…]+", alt) if len(w) >= 2]
+        # 사람 이름은 보통 '이름 성' 순서라 두 번째 단어(성)를 핵심어로 사용
+        key = words[1] if len(words) >= 2 else (words[0] if words else alt)
+        variants = [alt] + [" ".join(words[i:i + 2]) for i in range(len(words) - 1)] + [key + " 축구"]
+        for v in dict.fromkeys(variants):
+            for sort in ("recency", "accuracy"):
                 try:
-                    if datetime.fromisoformat(it["datetime"]) < since:
+                    r = requests.get("https://dapi.kakao.com/v2/search/web", headers=headers,
+                                     params={"query": v, "sort": sort, "size": 50}, timeout=15)
+                    r.raise_for_status()
+                except Exception as e:
+                    print(f"[기사 검색 실패] {v}: {e}")
+                    continue
+                for it in r.json().get("documents", []):
+                    link = it["url"]
+                    try:
+                        if datetime.fromisoformat(it["datetime"]) < since:
+                            continue
+                    except Exception:
                         continue
-                except Exception:
-                    continue
-                title, desc = _clean(it["title"]), _clean(it.get("contents"))
-                if link in seen or not _is_news_link(link):
-                    continue
-                if not any(k in title + desc for k in keys):
-                    continue
-                seen.add(link)
-                out.append({"id": len(out), "title": title, "desc": desc,
-                            "link": link, "domain": urlparse(link).netloc.replace("www.", "")})
-        print(f"[기사 검색] '{v}' → 누적 {len(out)}개")
-        if len(out) >= limit:
-            break
+                    title, desc = _clean(it["title"]), _clean(it.get("contents"))
+                    text = title + " " + desc
+                    if link in seen or not _is_news_link(link):
+                        continue
+                    if key.lower() not in text.lower() or not FOOTBALL.search(text):
+                        continue
+                    seen.add(link)
+                    out.append({"id": len(out), "title": title, "desc": desc,
+                                "link": link, "domain": urlparse(link).netloc.replace("www.", "")})
+            print(f"[기사 검색] '{v}' → 누적 {len(out)}개")
+            if len(out) >= limit:
+                return out[:limit]
     return out[:limit]
 
 
