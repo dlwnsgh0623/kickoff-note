@@ -29,7 +29,16 @@ def _clean(text):
 # 뉴스가 아닌 사이트(블로그·커뮤니티 등)는 제외
 NON_NEWS = ("tistory", "blog", "cafe", "namu.wiki", "wikipedia", "youtube", "instagram",
             "facebook", "x.com", "twitter", "fmkorea", "dcinside", "ruliweb", "clien",
-            "theqoo", "inven", "brunch", "velog", "github", "reddit")
+            "theqoo", "inven", "brunch", "velog", "github", "reddit", "4590fb", "mlbpark",
+            "ppomppu", "bobaedream", "humoruniv", "instiz", "natepann", "ygosu", "etoland")
+BOARD_PATH = re.compile(r"/(boards?|bbs|community|forum|cafe)(/|\.|$)", re.I)
+
+
+def _is_news_link(link):
+    """언론사 기사 주소인지 (커뮤니티·블로그·게시판 제외)"""
+    u = urlparse(link)
+    domain = u.netloc.replace("www.", "")
+    return not any(w in domain for w in NON_NEWS) and not BOARD_PATH.search(u.path)
 
 
 def collect_articles():
@@ -64,7 +73,7 @@ def collect_articles():
                     continue
                 link = it["url"]
                 domain = urlparse(link).netloc.replace("www.", "")
-                if any(w in domain for w in NON_NEWS):
+                if not _is_news_link(link):
                     continue
                 title = _clean(it["title"])
                 key = re.sub(r"\W", "", title)[:30]
@@ -91,6 +100,34 @@ def collect_articles():
             articles.append(a)
     print(f"[수집] 전체 {len(articles)}개 (RSS {len(rss)}개 포함)")
     return articles
+
+
+def search_articles(query, hours=72, limit=8):
+    """한 가지 검색어로 최근 언론사 기사 찾기 (게시물 다시 만들 때 사용)"""
+    headers = {"Authorization": f"KakaoAK {os.environ['KAKAO_REST_KEY']}"}
+    since = datetime.now(KST) - timedelta(hours=hours)
+    out, seen = [], set()
+    for sort in ("accuracy", "recency"):
+        try:
+            r = requests.get("https://dapi.kakao.com/v2/search/web", headers=headers,
+                             params={"query": query, "sort": sort, "size": 30}, timeout=15)
+            r.raise_for_status()
+        except Exception as e:
+            print(f"[기사 검색 실패] {query}: {e}")
+            continue
+        for it in r.json().get("documents", []):
+            link = it["url"]
+            try:
+                if datetime.fromisoformat(it["datetime"]) < since:
+                    continue
+            except Exception:
+                continue
+            if link in seen or not _is_news_link(link):
+                continue
+            seen.add(link)
+            out.append({"id": len(out), "title": _clean(it["title"]), "desc": _clean(it.get("contents")),
+                        "link": link, "domain": urlparse(link).netloc.replace("www.", "")})
+    return out[:limit]
 
 
 def it_date(it):
@@ -268,7 +305,8 @@ def fetch_article(url):
 PHOTO_PROMPT = """너는 해외축구 인스타 계정의 사진 담당이야.
 게시물 주제: {topic}
 이미지 문구: {hook}
-주인공(선수/팀) 단서: {tags}
+주인공: {subject}
+관련 키워드: {tags}
 
 후보 사진 파일: {files}
 각 사진을 직접 열어보고
@@ -278,6 +316,9 @@ PHOTO_PROMPT = """너는 해외축구 인스타 계정의 사진 담당이야.
 
 공통 조건
 - 주제의 주인공 선수/팀이 나온 사진이어야 함 (다른 팀 유니폼이면 탈락). 선수 이야기면 그 선수 본인이 보여야 함.
+- 누군지 확신할 수 없으면 추측하지 마. 국적·인종·외모가 비슷하다는 이유로 고르면 절대 안 됨.
+  주인공 이름으로 검색한 결과이면서 유니폼·팀이 맞는 사진, 또는 기사 대표 사진만 주인공으로 인정해.
+  유명 선수(다른 사람)로 보이는 사진이면 탈락.
 - 다른 언론사의 제목·자막·로고·카드뉴스 글자가 크게 박힌 사진은 탈락 (작은 워터마크는 괜찮음)
 - 표지는 인물이 크게, 선명하게 나온 사진 우선
 - 추가 사진은 표지와 거의 같은 사진(같은 장면·같은 구도)이면 안 됨. 경기 장면, 세리머니, 감독, 관중 등 이야기를 보충하는 장면이면 좋음
@@ -314,29 +355,38 @@ def pick_photo(story, post, urls):
     표지를 못 찾으면 ① 검색어를 바꿔 다시 찾고 ② 그래도 없으면 조건을 조금 완화해서 고름.
     돌려주는 값: (표지 주소 또는 None, [추가 사진 주소들])"""
     tags = [t for t in post["hashtags"] if t]
-    query = " ".join(tags[:2]) or story["topic"]
-    pool = list(dict.fromkeys(urls + search_photos(query)))
-    cover, extras = _pick_from(story, post, pool)
+    queries = [q for q in post.get("photo_queries", []) if q] or [" ".join(tags[:2]) or story["topic"]]
+    origin = {u: "기사 대표 사진" for u in urls}
+    searched = []
+    for q in queries[:2]:
+        for u in search_photos(q, n=8):
+            origin.setdefault(u, f"검색어 '{q}' 결과")
+            searched.append(u)
+    pool = list(dict.fromkeys(urls + searched))
+    cover, extras = _pick_from(story, post, pool, origin=origin)
     if cover:
         return cover, extras
 
-    # ① 검색어 바꿔서 (선수·팀 이름 하나씩, 주제 문장)
+    # ① 검색어 바꿔서 (영문 이름, 남은 검색어, 해시태그)
     more = []
-    for q in tags[:3] + [story["topic"]]:
-        more += search_photos(q + " 축구", n=8)
+    for q in queries[2:] + [post.get("subject_en", "")] + [t + " 축구" for t in tags[:2]]:
+        if q:
+            for u in search_photos(q, n=8):
+                origin.setdefault(u, f"검색어 '{q}' 결과")
+                more.append(u)
     new = [u for u in dict.fromkeys(more) if u not in pool]
     print(f"[사진 재검색] 새 후보 {len(new)}장")
     if new:
-        cover, extras = _pick_from(story, post, new + pool)
+        cover, extras = _pick_from(story, post, new + pool, origin=origin)
         if cover:
             return cover, extras
 
     # ② 조건 완화 (작은 로고·팀 단체 사진 허용)
     print("[사진 완화] 조건을 완화해서 다시 선택")
-    return _pick_from(story, post, new + pool, relaxed=True)
+    return _pick_from(story, post, new + pool, relaxed=True, origin=origin)
 
 
-def _pick_from(story, post, urls, relaxed=False):
+def _pick_from(story, post, urls, relaxed=False, origin=None):
     cands = card.photo_candidates(urls, max_n=10)
     if not cands:
         return None, []
@@ -348,9 +398,12 @@ def _pick_from(story, post, urls, relaxed=False):
         name = f"c{i}.jpg"
         small.save(os.path.join(work, name), "JPEG", quality=85)
         files.append(name)
+    origin = origin or {}
+    file_desc = ", ".join(f"{f}({origin.get(u, '기사 대표 사진')})" for f, (u, _) in zip(files, cands))
     prompt = PHOTO_PROMPT.format(topic=story["topic"], hook=" / ".join(post["hook"]),
-                                 tags=", ".join(post["hashtags"]), files=", ".join(files),
-                                 n_extra=settings.EXTRA_PHOTOS)
+                                 tags=", ".join(post["hashtags"]), files=file_desc,
+                                 n_extra=settings.EXTRA_PHOTOS,
+                                 subject=f"{post.get('subject', '')} ({post.get('subject_en', '')})")
     if relaxed:
         prompt += """
 
@@ -498,13 +551,20 @@ def write_post(story, style="", used_hooks=()):
   · 여러 기사의 정보를 합쳐서 써. 기사에 없는 사실·숫자·인용은 절대 만들지 마.
   · 각 단락 첫머리에 그 단락에 맞는 이모지 1개 (예: ⚽ 📊 🗣️ 📈 🔜). 이모지 외 꾸밈 기호는 쓰지 마.
 - hashtags: 선수·팀·감독·대회·라이벌팀 등 이 게시물과 관련된 태그 8~12개 (# 없이, 띄어쓰기 없이).
+- subject: 이 게시물의 주인공(선수·감독·팀) 한국어 이름. 기사에서 이름을 확인할 수 없으면 빈 문자열 "".
+  주인공 이름을 모르는 채로 '한 선수', '이 선수'처럼 뭉뚱그려 쓰는 건 금지. 그럴 땐 subject를 ""로 둬.
+- subject_en: 주인공의 영문/현지 표기 이름과 소속팀 (예: "Arnau Ortiz Atletico Madrid", "Pierre Sage Crystal Palace")
+- photo_queries: 주인공 사진을 찾을 이미지 검색어 3개. 한국어 이름+팀, 영문 이름+팀, 영문 이름만 (예: ["아르나우 오르티스 아틀레티코", "Arnau Ortiz Atletico", "Arnau Ortiz"])
 
 JSON으로만 답해:
-{{"hook":["1줄","2줄"],"highlight":2,"caption_title":"...","caption_body":"단락1\\n\\n단락2\\n\\n단락3","hashtags":["..."]}}
+{{"hook":["1줄","2줄"],"highlight":2,"caption_title":"...","caption_body":"단락1\\n\\n단락2\\n\\n단락3","hashtags":["..."],"subject":"...","subject_en":"...","photo_queries":["...","...","..."]}}
 
 기사들:
 """ + "\n\n".join(details)
     post = ask_claude(prompt, max_tokens=4000)
+    post["subject"] = (post.get("subject") or "").strip()
+    if not post["subject"] or re.search(r"(한|이|그) 선수", post.get("caption_body", "")[:200]):
+        raise ValueError("기사에서 주인공 이름을 확인 못 함 → 이 뉴스는 건너뜀")
     if not _hook_ok(post["hook"]):
         post = _fix_hook(post, style)
     image, extra_images = pick_photo(story, post, list(dict.fromkeys(candidates)))

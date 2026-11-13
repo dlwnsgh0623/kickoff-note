@@ -9,8 +9,12 @@ on:
         description: "카톡만 다시 보내기 (게시물 새로 안 만듦)"
         type: boolean
         default: false
+      redo:
+        description: "특정 게시물만 다시 만들기 (예: 4=아르나우 오르티스, 5)"
+        type: string
+        default: ""
       date:
-        description: "다시 보낼 날짜 (예: 2026-11-09). 비우면 오늘"
+        description: "대상 날짜 (예: 2026-11-09). 비우면 오늘"
         type: string
         default: ""
 
@@ -30,6 +34,7 @@ jobs:
     timeout-minutes: 30
     env:
       TZ: Asia/Seoul
+      KICKOFF_DATE: ${{ inputs.date }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
       KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
@@ -49,7 +54,11 @@ jobs:
       - name: Claude Code 설치
         run: npm install -g @anthropic-ai/claude-code
       - name: 뉴스 수집 · 이미지 제작
+        if: ${{ !inputs.redo }}
         run: python make_posts.py
+      - name: 특정 게시물 다시 만들기
+        if: ${{ inputs.redo }}
+        run: python redo.py "${{ inputs.redo }}"
       - name: 모아보기 페이지 만들기
         run: python make_page.py
       - name: 결과 저장 (이미지를 공개 주소로 올림)

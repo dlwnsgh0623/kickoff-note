@@ -39,20 +39,34 @@ def main():
         sys.exit("오늘 뉴스 선정에 실패했어요.")
     print(f"[선정] 후보 {len(stories)}개")
 
-    with_photo, without_photo = [], []
-    for s in stories:
-        if len(with_photo) >= settings.POST_COUNT:
-            break
-        style = settings.HOOK_STYLES[len(with_photo) % len(settings.HOOK_STYLES)]
-        used = [p["hook"] for p in with_photo + without_photo]
+    with_photo, without_photo, tried = [], [], []
+
+    def run(story_list):
+        for s in story_list:
+            if len(with_photo) >= settings.POST_COUNT:
+                return
+            if s.get("topic") in tried:
+                continue
+            tried.append(s.get("topic"))
+            style = settings.HOOK_STYLES[len(with_photo) % len(settings.HOOK_STYLES)]
+            used = [p["hook"] for p in with_photo + without_photo]
+            try:
+                post = news.write_post(s, style=style, used_hooks=used)
+            except Exception as e:
+                print(f"[건너뜀] {s.get('topic', '?')}: {type(e).__name__} {e}")
+                continue
+            (with_photo if post["image_source"] else without_photo).append(post)
+            if not post["image_source"]:
+                print(f"[사진 없음] {s.get('topic', '?')}")
+
+    run(stories)
+    # 사진 있는 게시물이 모자라면, 이미 본 이슈를 빼고 후보를 한 번 더 받아서 채우기
+    if len(with_photo) < settings.POST_COUNT:
+        print(f"[보충] 사진 있는 게시물 {len(with_photo)}개 → 후보 추가 선정")
         try:
-            post = news.write_post(s, style=style, used_hooks=used)
+            run(news.pick_stories(articles, recent_topics() + tried))
         except Exception as e:
-            print(f"[작성 실패] {s.get('topic', '?')}: {type(e).__name__} {e}")
-            continue
-        (with_photo if post["image_source"] else without_photo).append(post)
-        if not post["image_source"]:
-            print(f"[사진 없음] {s.get('topic', '?')}")
+            print(f"[보충 실패] {type(e).__name__} {e}")
 
     # 표지 사진이 있는 게시물만 사용. 그래도 모자란 날에만 사진 없는 게시물로 채우고 카톡에 표시
     posts = (with_photo + without_photo)[: settings.POST_COUNT]
