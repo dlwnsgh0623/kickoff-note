@@ -507,6 +507,79 @@ def _hook_ok(hook):
     return not any(_is_hearsay(line) for line in hook)
 
 
+# 멘트 끝말 종류: 하루 5개가 서로 다르게 끝나도록 배정·검사
+ENDINGS = {
+    "noun": ("명사·숫자로 딱 끊기", "'라민 야말 근황', '안방에서 0-5 참사', '16경기 만에 경질 엔딩', '단 15골 남은 기록'"),
+    "da": ("'~다'로 단정", "'단 15골 남았다', '결국 홈에서 무너졌다', '3개월 만에 떠난다'"),
+    "q": ("질문으로 던지기 (? 또는 ~냐)", "'이게 그 맨시티 맞음?', '콤파니 진심이냐', '이걸 놓친다고?'"),
+    "linger": ("여운·감탄 (~라니, ~는데, ~하네, ~지)", "'이유가 규율위반이라니', '아스날 갔으면 달랐을 텐데', '이러면 반칙이지'"),
+    "eum": ("'~음/~임/~함/~됨'", "'나폴리 생활 지옥이었음', '결국 두 번째도 거절함'"),
+}
+ENDING_CAP = {"noun": 2, "da": 2, "q": 2, "linger": 2, "eum": 1}
+_EUM_NOUNS = ("팀", "홈", "폼", "게임", "드림", "시스템", "이름", "마음", "꿈", "붐", "캠", "시즌 첫 꿈")
+
+
+def _jong(ch):
+    return (ord(ch) - 0xAC00) % 28 if "가" <= ch <= "힣" else -1
+
+
+def hook_ending(line):
+    """멘트 한 줄이 어떤 종류로 끝나는지"""
+    t = re.sub(r"[\s.!~ㅋㅎㄷㅠ;]+$", "", line.strip())
+    if not t:
+        return "noun"
+    if line.strip().endswith("?"):
+        return "q"
+    if t.endswith(("라니", "다니", "는데", "은데", "텐데", "인데", "네", "데", "는지", "건지", "구나", "군", "지")):
+        return "linger"
+    if t.endswith(("냐", "까", "니")):
+        return "q"
+    if t[-1] == "다":
+        return "da"
+    if _jong(t[-1]) == 16 and not any(t.endswith(n) for n in _EUM_NOUNS):  # 받침 ㅁ: 겹침·노림·이혼임·거절함
+        return "eum"
+    return "noun"
+
+
+def ending_plan(n, seed):
+    """하루 n개 게시물에 끝말 종류를 하나씩 배정 (날짜마다 순서가 바뀜)"""
+    import random
+    kinds = ["noun", "da", "q", "linger", "eum"]
+    random.Random(seed).shuffle(kinds)
+    return [kinds[i % len(kinds)] for i in range(n)]
+
+
+def _ending_ok(hook, used_hooks):
+    kind = hook_ending(hook[-1])
+    used = [hook_ending(h[-1]) for h in used_hooks if h]
+    return used.count(kind) < ENDING_CAP[kind]
+
+
+def _fix_ending(post, style, target, used_hooks):
+    """끝말 종류가 그날 이미 꽉 찼으면 배정된 종류로 다시 쓰게 함"""
+    name, ex = ENDINGS[target]
+    used = " | ".join(" / ".join(h) for h in used_hooks) or "(없음)"
+    prompt = f"""해외축구 인스타 썸네일 문구를 고쳐줘.
+지금 문구: {post['hook'][0]} / {post['hook'][1]}
+문제: 오늘 다른 게시물들과 끝말이 겹쳐서 단조로움. 오늘 이미 쓴 멘트: {used}
+2줄째 끝을 반드시 '{name}' 형태로 바꿔. 예: {ex}
+'~래', '~했대' 같은 전해 들은 말투 금지. 커뮤니티 글 제목 느낌 유지, 내용(사실)은 그대로.
+각 줄 한글 13자 이내, 스타일: {style}
+JSON으로만: {{"hook":["1줄","2줄"],"highlight":1또는2}}"""
+    for _ in range(2):
+        try:
+            r = ask_claude(prompt, max_tokens=300)
+        except Exception as e:
+            print(f"[끝말 수정 실패] {e}")
+            return post
+        h = r.get("hook", [])[:2]
+        if len(h) == 2 and _hook_ok(h) and _ending_ok(h, used_hooks):
+            print(f"[끝말 수정] {' / '.join(post['hook'])} → {' / '.join(h)}")
+            post["hook"], post["highlight"] = h, r.get("highlight", post.get("highlight", 2))
+            return post
+    return post
+
+
 def _fix_hook(post, style):
     """멘트가 전달체(~래 등)로 끝나면 한 번 더 다시 쓰게 함"""
     prompt = f"""해외축구 인스타 썸네일 문구를 고쳐줘.
@@ -528,7 +601,7 @@ JSON으로만: {{"hook":["1줄","2줄"],"highlight":1또는2}}"""
     return post
 
 
-def write_post(story, style="", used_hooks=()):
+def write_post(story, style="", used_hooks=(), ending=None):
     details, candidates, sources = [], [], []
     for a in story["articles"][:7]:
         info = fetch_article(a["link"])
@@ -540,6 +613,8 @@ def write_post(story, style="", used_hooks=()):
             sources.append(info.get("site") or a["domain"])
             details.append(f"[제목] {a['title']}\n[요약] {a['desc']}\n[본문] {info.get('text', '')}")
     style = style or settings.HOOK_STYLES[0]
+    ending = ending or "noun"
+    ending_rule = f"반드시 '{ENDINGS[ending][0]}' 형태 (예: {ENDINGS[ending][1]})"
     used = " | ".join(" / ".join(h) for h in used_hooks) or "(없음)"
     prompt = f"""너는 해외축구 인스타 계정 '킥오프노트' 운영자야. 아래 기사들만 근거로 게시물을 써.
 
@@ -559,6 +634,7 @@ def write_post(story, style="", used_hooks=()):
     나쁜 예: '감독 사과 원했던 거래' → 좋은 예: '감독 사과가 먼저였음' / '결국 감독이랑 틀어짐'
   추임새(ㅋㅋ, ㄷㄷ, ㅠㅠ, ;;)는 멘트 전체에서 최대 1개, 그리고 오늘 이미 쓴 추임새는 다시 쓰지 마.
   이번 게시물의 hook 스타일: {style}
+  이번 게시물 2줄째 끝말: {ending_rule}
   오늘 이미 쓴 멘트(같은 어미·구조·추임새 반복 금지): {used}
 - highlight: hook 두 줄 중 강조(형광색)할 줄 번호. 보통 펀치라인 쪽(1 또는 2).
 - caption_title: 설명란 첫 줄, 이모지 1개 포함, 30자 이내.
@@ -592,6 +668,8 @@ JSON으로만 답해:
         raise ValueError("기사에서 주인공 이름을 확인 못 함 → 이 뉴스는 건너뜀")
     if not _hook_ok(post["hook"]):
         post = _fix_hook(post, style)
+    if not _ending_ok(post["hook"], used_hooks):
+        post = _fix_ending(post, style, ending, used_hooks)
     image, extra_images = pick_photo(story, post, list(dict.fromkeys(candidates)))
 
     # 해시태그: 기본 + 리그 + 게시물 관련 태그 (인스타 최대 30개)

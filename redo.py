@@ -53,7 +53,9 @@ def main():
         others = [p["hook"] for i, p in enumerate(posts) if i != num - 1]
         style = settings.HOOK_STYLES[(num - 1) % len(settings.HOOK_STYLES)]
         try:
-            post = news.write_post(story, style=style, used_hooks=others)
+            used = [news.hook_ending(h[-1]) for h in others]
+            free = [k for k in news.ENDINGS if used.count(k) < news.ENDING_CAP[k]]
+            post = news.write_post(story, style=style, used_hooks=others, ending=(free or ["noun"])[0])
         except Exception as e:
             print(f"[실패 {num}] {type(e).__name__} {e} → 기존 게시물 유지")
             continue

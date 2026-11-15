@@ -40,6 +40,8 @@ def main():
     print(f"[선정] 후보 {len(stories)}개")
 
     with_photo, without_photo, tried = [], [], []
+    plan = news.ending_plan(settings.POST_COUNT, date)  # 게시물마다 끝말 종류 배정
+    print(f"[끝말 배정] {plan}")
 
     def run(story_list):
         for s in story_list:
@@ -50,8 +52,9 @@ def main():
             tried.append(s.get("topic"))
             style = settings.HOOK_STYLES[len(with_photo) % len(settings.HOOK_STYLES)]
             used = [p["hook"] for p in with_photo + without_photo]
+            ending = plan[len(with_photo) % len(plan)]
             try:
-                post = news.write_post(s, style=style, used_hooks=used)
+                post = news.write_post(s, style=style, used_hooks=used, ending=ending)
             except Exception as e:
                 print(f"[건너뜀] {s.get('topic', '?')}: {type(e).__name__} {e}")
                 continue
