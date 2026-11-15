@@ -525,7 +525,7 @@ def _jong(ch):
 
 def hook_ending(line):
     """멘트 한 줄이 어떤 종류로 끝나는지"""
-    t = re.sub(r"[\s.!~ㅋㅎㄷㅠ;]+$", "", line.strip())
+    t = re.sub(r"[\s.!?~ㅋㅎㄷㅠ;]+$", "", line.strip())
     if not t:
         return "noun"
     if line.strip().endswith("?"):
